@@ -1,4 +1,4 @@
-import { BoatPreset, Point, RouteResult, WeatherGridResponse } from '../types';
+import { BoatDetail, BoatPreset, Point, RouteResult, SolveMatrixResponse, WeatherGridResponse } from '../types';
 
 export const ROUTE_PRESETS = [
   {
@@ -77,6 +77,74 @@ export async function fetchPresets(): Promise<BoatPreset[]> {
       },
     ];
   }
+}
+
+export async function fetchBoatDetail(presetId: string): Promise<BoatDetail> {
+  const res = await fetch(`/api/v1/presets/${encodeURIComponent(presetId)}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load specifications for yacht preset '${presetId}'`);
+  }
+  return await res.json();
+}
+
+export async function fetchPolarMatrix(presetId: string): Promise<SolveMatrixResponse> {
+  const res = await fetch('/api/v1/solve/matrix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset_name: presetId }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to compute polar matrix for yacht '${presetId}'`);
+  }
+  return await res.json();
+}
+
+export async function fetchPlotImageBlob(
+  plotType: 'polar' | 'curves' | 'resistance',
+  presetId: string,
+  heelDeg: number = 15
+): Promise<string> {
+  const url =
+    plotType === 'resistance'
+      ? `/api/v1/plot/resistance?heel_deg=${heelDeg}`
+      : `/api/v1/plot/${plotType}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset_name: presetId }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to render ${plotType} plot`);
+  }
+
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+export async function exportORCPolFile(presetId: string): Promise<string> {
+  const res = await fetch('/api/v1/export/orc', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset_name: presetId }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to generate ORC .pol export');
+  }
+  return await res.text();
+}
+
+export async function exportCSVPolFile(presetId: string): Promise<string> {
+  const res = await fetch('/api/v1/export/csv', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset_name: presetId }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to generate CSV polar export');
+  }
+  return await res.text();
 }
 
 export async function calculateRoute(params: {

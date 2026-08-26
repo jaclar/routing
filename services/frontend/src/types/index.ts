@@ -13,6 +13,76 @@ export interface BoatPreset {
   rig_type: string;
 }
 
+export interface HullDetail {
+  loa: number;
+  lwl: number;
+  b_max: number;
+  b_wl: number;
+  draft_canoe: number;
+  draft_total: number;
+  displacement_mass: number;
+  wetted_surface?: number;
+  prismatic_coef: number;
+  form_factor_k: number;
+  lcb_fraction: number;
+}
+
+export interface AppendagesDetail {
+  keel_type: string;
+  keel_area: number;
+  keel_span: number;
+  rudder_area: number;
+  rudder_span: number;
+  effective_draft?: number;
+  wetted_surface?: number;
+}
+
+export interface RigDetail {
+  rig_type: string;
+  main_p: number;
+  main_e: number;
+  fore_i: number;
+  fore_j: number;
+  mast_height_above_water: number;
+  boom_height_above_water: number;
+  mizzen_p?: number;
+  mizzen_e?: number;
+  mizzen_mast_height?: number;
+  mizzen_boom_height?: number;
+}
+
+export interface StabilityDetail {
+  gmt: number;
+  crew_mass: number;
+  crew_hiking_distance: number;
+  crew_hiking_fraction: number;
+}
+
+export interface BoatDetail {
+  name: string;
+  hull: HullDetail;
+  appendages: AppendagesDetail;
+  rig: RigDetail;
+  stability: StabilityDetail;
+}
+
+export interface VMGTarget {
+  tws_kts: number;
+  target_twa_deg: number;
+  target_v_boat_kts: number;
+  target_vmg_kts: number;
+  is_upwind: boolean;
+}
+
+export interface SolveMatrixResponse {
+  boat_name: string;
+  tws_list: number[];
+  twa_list: number[];
+  speed_matrix: number[][]; // [twsIndex][twaIndex] in knots
+  upwind_vmg_targets: Record<string, VMGTarget>;
+  downwind_vmg_targets: Record<string, VMGTarget>;
+}
+
 export interface WindCondition {
   tws_kts: number;
   twd_deg: number;

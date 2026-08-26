@@ -25,6 +25,10 @@
         reverse_proxy vpp-service:8000
     }
 
+    handle /api/v1/export* {
+        reverse_proxy vpp-service:8000
+    }
+
     # Fallback for React SPA static assets & client-side routes
     handle {
         root * /usr/share/caddy

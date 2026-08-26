@@ -3,11 +3,14 @@ import { Sidebar } from './components/Sidebar';
 import { MapView } from './components/MapView';
 import { TimelineScrubber } from './components/TimelineScrubber';
 import { LayerToggles } from './components/LayerToggles';
+import { VPPInspector } from './components/VPPInspector';
 import { BoatPreset, Point, RouteResult, WeatherGridResponse } from './types';
 import { fetchPresets, calculateRoute, fetchWeatherGrid, ROUTE_PRESETS } from './services/api';
+import { Map as MapIcon, Gauge } from 'lucide-react';
 import './styles/App.css';
 
 export const App: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'routing' | 'vpp'>('routing');
   const [presets, setPresets] = useState<BoatPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>('36ft-ketch');
 
@@ -110,6 +113,7 @@ export const App: React.FC = () => {
       });
       setRouteResult(result);
       setCurrentWaypointIndex(0);
+      setActiveTab('routing');
     } catch (err: any) {
       alert(`Route Calculation Failed: ${err.message || err}`);
     } finally {
@@ -119,6 +123,24 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-container">
+      {/* Top Main Navigation Tabs */}
+      <div className="app-tabs-bar">
+        <button
+          className={`tab-nav-btn ${activeTab === 'routing' ? 'active' : ''}`}
+          onClick={() => setActiveTab('routing')}
+        >
+          <MapIcon size={16} />
+          <span>Weather Routing & Passage</span>
+        </button>
+        <button
+          className={`tab-nav-btn ${activeTab === 'vpp' ? 'active' : ''}`}
+          onClick={() => setActiveTab('vpp')}
+        >
+          <Gauge size={16} />
+          <span>VPP Sailboat Performance & Polars</span>
+        </button>
+      </div>
+
       <Sidebar
         presets={presets}
         selectedPresetId={selectedPresetId}
@@ -150,29 +172,39 @@ export const App: React.FC = () => {
       />
 
       <div className="main-view">
-        <MapView
-          startPoint={startPoint}
-          destPoint={destPoint}
-          routeResult={routeResult}
-          currentWaypointIndex={currentWaypointIndex}
-          weatherGrid={weatherGrid}
-          showIsochrones={showIsochrones}
-          showWindGrid={showWindGrid}
-        />
+        {activeTab === 'routing' ? (
+          <>
+            <MapView
+              startPoint={startPoint}
+              destPoint={destPoint}
+              routeResult={routeResult}
+              currentWaypointIndex={currentWaypointIndex}
+              weatherGrid={weatherGrid}
+              showIsochrones={showIsochrones}
+              showWindGrid={showWindGrid}
+            />
 
-        <LayerToggles
-          showIsochrones={showIsochrones}
-          onToggleIsochrones={() => setShowIsochrones(!showIsochrones)}
-          showWindGrid={showWindGrid}
-          onToggleWindGrid={() => setShowWindGrid(!showWindGrid)}
-          activeTime={activeTime}
-        />
+            <LayerToggles
+              showIsochrones={showIsochrones}
+              onToggleIsochrones={() => setShowIsochrones(!showIsochrones)}
+              showWindGrid={showWindGrid}
+              onToggleWindGrid={() => setShowWindGrid(!showWindGrid)}
+              activeTime={activeTime}
+            />
 
-        {routeResult && (
-          <TimelineScrubber
-            routeResult={routeResult}
-            currentIndex={currentWaypointIndex}
-            onIndexChange={setCurrentWaypointIndex}
+            {routeResult && (
+              <TimelineScrubber
+                routeResult={routeResult}
+                currentIndex={currentWaypointIndex}
+                onIndexChange={setCurrentWaypointIndex}
+              />
+            )}
+          </>
+        ) : (
+          <VPPInspector
+            presets={presets}
+            selectedPresetId={selectedPresetId}
+            onSelectPreset={setSelectedPresetId}
           />
         )}
       </div>
