@@ -320,6 +320,14 @@ export const MapView: React.FC<MapViewProps> = ({
     layersRef.current.destMarker = L.marker([destPoint.lat, destPoint.lon], { icon: destIcon })
       .bindPopup(`<b>Destination Point</b><br/>Lat: ${destPoint.lat.toFixed(3)}<br/>Lon: ${destPoint.lon.toFixed(3)}`)
       .addTo(map);
+
+    if (!routeResult) {
+      const bounds = L.latLngBounds([
+        [startPoint.lat, startPoint.lon],
+        [destPoint.lat, destPoint.lon],
+      ]).pad(0.4);
+      map.fitBounds(bounds, { maxZoom: 8, animate: true });
+    }
   }, [startPoint, destPoint]);
 
   // 3. Render Wind Heatmap Background & Classical Wind Barbs

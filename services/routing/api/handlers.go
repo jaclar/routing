@@ -66,6 +66,9 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 	cfg := isochrone.DefaultRouterConfig()
 	if req.TimeStepHours > 0 {
 		cfg.TimeStep = time.Duration(req.TimeStepHours * float64(time.Hour))
+		// Scale arrival capture radius dynamically with time step (e.g. ~0.5 NM for 5-min step)
+		stepDistanceEstNM := req.TimeStepHours * 6.5
+		cfg.ArrivalRadiusNM = math.Max(0.5, math.Min(stepDistanceEstNM*1.1, 12.0))
 	}
 	if req.TackPenaltyMinutes != nil {
 		cfg.TackPenaltyMinutes = *req.TackPenaltyMinutes

@@ -150,7 +150,9 @@ func CalculateOptimalRoute(
 	}
 
 	timeStepSec := cfg.TimeStep.Seconds()
-	arrivalRadiusMeters := cfg.ArrivalRadiusNM * geo.NMToMeters
+	// Dynamic arrival capture radius scaled with time step resolution (min 800m for 5-min steps)
+	stepDistanceEstMeters := (cfg.TimeStep.Hours() * 6.5) * geo.NMToMeters
+	arrivalRadiusMeters := math.Max(800.0, math.Min(stepDistanceEstMeters*1.2, cfg.ArrivalRadiusNM*geo.NMToMeters))
 
 	// Root start node
 	initWind := weatherProvider.GetWind(start.Lat, start.Lon, startTime)

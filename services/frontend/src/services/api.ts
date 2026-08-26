@@ -2,6 +2,13 @@ import { BoatDetail, BoatPreset, Point, RouteResult, SolveMatrixResponse, Weathe
 
 export const ROUTE_PRESETS = [
   {
+    name: 'Prickly Bay (Grenada) to Chaguaramas (Trinidad)',
+    startName: 'Prickly Bay (Grenada)',
+    start: { lat: 11.975, lon: -61.765 },
+    destName: 'Chaguaramas (Trinidad)',
+    dest: { lat: 10.675, lon: -61.645 },
+  },
+  {
     name: 'Newport to Bermuda (Classic Ocean Race)',
     startName: 'Newport (Brenton Reef)',
     start: { lat: 41.45, lon: -71.35 },

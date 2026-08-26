@@ -126,6 +126,37 @@ func (lm *LandMask) initializeStandardLandmasses() {
 		{Lat: 32.24, Lon: -64.86},
 		{Lat: 32.25, Lon: -64.88},
 	})
+
+	// Grenada
+	lm.addPolygon("Grenada", []geo.Point{
+		{Lat: 12.00, Lon: -61.79},
+		{Lat: 12.24, Lon: -61.64},
+		{Lat: 12.16, Lon: -61.60},
+		{Lat: 12.00, Lon: -61.70},
+		{Lat: 12.00, Lon: -61.79},
+	})
+
+	// Tobago
+	lm.addPolygon("Tobago", []geo.Point{
+		{Lat: 11.16, Lon: -60.84},
+		{Lat: 11.33, Lon: -60.52},
+		{Lat: 11.35, Lon: -60.56},
+		{Lat: 11.20, Lon: -60.78},
+		{Lat: 11.16, Lon: -60.84},
+	})
+
+	// Trinidad Mainland (leaving Bocas del Dragón channel navigable for Chaguaramas entry)
+	lm.addPolygon("Trinidad", []geo.Point{
+		{Lat: 10.83, Lon: -60.91}, // Galera Point (NE)
+		{Lat: 10.10, Lon: -60.98}, // Galeota Point (SE)
+		{Lat: 10.05, Lon: -61.92}, // Icacos Point (SW)
+		{Lat: 10.25, Lon: -61.50}, // San Fernando
+		{Lat: 10.64, Lon: -61.50}, // Port of Spain
+		{Lat: 10.67, Lon: -61.62}, // Chaguaramas Bay East
+		{Lat: 10.73, Lon: -61.68}, // NW Peninsula / Punta del Mono
+		{Lat: 10.82, Lon: -61.25}, // North Coast
+		{Lat: 10.83, Lon: -60.91}, // Galera Point
+	})
 }
 
 func (lm *LandMask) addPolygon(name string, vertices []geo.Point) {

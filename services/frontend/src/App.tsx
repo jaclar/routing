@@ -19,7 +19,7 @@ export const App: React.FC = () => {
   const [departureTime, setDepartureTime] = useState<string>(
     new Date().toISOString().slice(0, 16)
   );
-  const [timeStepHours, setTimeStepHours] = useState<number>(2.0);
+  const [timeStepHours, setTimeStepHours] = useState<number>(5 / 60);
   const [tackPenaltyMinutes, setTackPenaltyMinutes] = useState<number>(5.0);
   const [gybePenaltyMinutes, setGybePenaltyMinutes] = useState<number>(8.0);
 

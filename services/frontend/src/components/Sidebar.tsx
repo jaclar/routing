@@ -216,10 +216,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               value={timeStepHours}
               onChange={(e) => onTimeStepChange(parseFloat(e.target.value))}
             >
-              <option value={1}>1 Hour (High resolution)</option>
-              <option value={2}>2 Hours (Recommended)</option>
-              <option value={3}>3 Hours (Standard)</option>
-              <option value={6}>6 Hours (Fast ocean)</option>
+              <option value={5 / 60}>5 Minutes (Ultra-High / Short Passage)</option>
+              <option value={10 / 60}>10 Minutes (Coastal & Inshore)</option>
+              <option value={15 / 60}>15 Minutes (High Precision)</option>
+              <option value={30 / 60}>30 Minutes (Channel Crossing)</option>
+              <option value={1}>1 Hour (Standard Passage)</option>
+              <option value={2}>2 Hours (Offshore Passage)</option>
+              <option value={6}>6 Hours (Fast Trans-Ocean)</option>
             </select>
           </div>
 
