@@ -81,6 +81,15 @@ def plot_polar_diagram(
         # Mirror on port
         ax.plot([-t for t in downwind_twas], downwind_spds, "s--", color="#d40055", linewidth=1.5, markersize=4.5)
 
+    # Visual No-Go Zone (< 28 deg)
+    max_speed = float(np.nanmax(polar_table.speed_table)) if polar_table.speed_table.size > 0 else 10.0
+    if not np.isfinite(max_speed) or max_speed <= 0:
+        max_speed = 10.0
+    nogo_theta = np.linspace(np.deg2rad(-28.0), np.deg2rad(28.0), 60)
+    nogo_r = np.full_like(nogo_theta, max_speed * 1.05)
+    ax.fill_between(nogo_theta, 0, nogo_r, color="#ef4444", alpha=0.10, label="No-Go Zone (<28°)")
+    ax.text(0, max_speed * 0.4, "NO-GO\nZONE", color="#dc2626", fontsize=8.5, fontweight="bold", ha="center", va="center")
+
     ax.set_thetagrids(
         np.arange(0, 360, 30),
         labels=["0° (Head)", "30°", "60°", "90° (Beam)", "120°", "150°", "180° (Run)", "150°", "120°", "90°", "60°", "30°"],
@@ -146,6 +155,10 @@ def plot_performance_curves(
         axes[1, 1].plot(twa_arr, vmgs, label=lbl, color=c, linewidth=2.0)
 
     # Subplot styling
+    for r in range(2):
+        for col in range(2):
+            axes[r, col].axvspan(0, 28, color="#ef4444", alpha=0.08)
+
     axes[0, 0].set_ylabel("Boat Speed [kts]", fontsize=11, fontweight="bold")
     axes[0, 0].set_title("Boat Speed vs TWA", fontsize=12)
     axes[0, 0].grid(True, linestyle=":", alpha=0.6)
@@ -190,7 +203,9 @@ def plot_resistance_breakdown(
 ) -> plt.Figure:
     """Generate resistance component breakdown vs boat speed."""
     if speeds_kts is None:
-        speeds_kts = list(np.linspace(1.0, 11.0, 40))
+        v_hull_nominal = (0.40 * np.sqrt(9.81 * boat.hull.lwl)) * (3600.0 / 1852.0)
+        max_spd = max(v_hull_nominal * 1.5, 12.0)
+        speeds_kts = list(np.linspace(1.0, max_spd, 50))
 
     r_visc = []
     r_wave = []

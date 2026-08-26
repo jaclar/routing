@@ -402,20 +402,23 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
                     </thead>
                     <tbody>
                       {polarData.twa_list.map((twa, twaIdx) => (
-                        <tr key={twa}>
-                          <td className="sticky-col font-bold">{twa}°</td>
+                        <tr key={twa} className={twa < 28 ? 'nogo-row' : ''}>
+                          <td className={`sticky-col font-bold ${twa < 28 ? 'nogo-header' : ''}`}>
+                            {twa}° {twa < 28 ? (twa === 0 ? '(Head/Irons)' : '(No-Go)') : ''}
+                          </td>
                           {polarData.tws_list.map((tws, twsIdx) => {
                             const speed = polarData.speed_matrix[twsIdx]?.[twaIdx] || 0;
                             return (
                               <td
                                 key={`${twa}_${tws}`}
                                 style={{
-                                  backgroundColor: getSpeedHeatmapColor(speed),
+                                  backgroundColor: twa < 28 ? 'rgba(239, 68, 68, 0.05)' : getSpeedHeatmapColor(speed),
+                                  color: twa < 28 ? '#64748b' : undefined,
                                 }}
-                                className="speed-cell"
-                                title={`TWA: ${twa}°, TWS: ${tws} kts -> Boat Speed: ${speed.toFixed(2)} kts`}
+                                className={`speed-cell ${twa < 28 ? 'nogo-cell' : ''}`}
+                                title={twa < 28 ? `TWA: ${twa}° (In-Irons No-Go Zone) -> 0.00 kts` : `TWA: ${twa}°, TWS: ${tws} kts -> Boat Speed: ${speed.toFixed(2)} kts`}
                               >
-                                {speed > 0 ? speed.toFixed(2) : '-'}
+                                {speed > 0.05 ? speed.toFixed(2) : '0.00'}
                               </td>
                             );
                           })}

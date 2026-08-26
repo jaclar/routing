@@ -76,7 +76,7 @@ class VPPSolver:
         Returns:
             VPPPointResult containing full performance metrics.
         """
-        if twa_deg < 25.0:
+        if twa_deg < 28.0:
             # In irons / aerodynamic no-go zone (sails cannot generate forward lift)
             return VPPPointResult(
                 tws_kts=tws_kts,

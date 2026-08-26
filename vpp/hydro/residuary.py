@@ -50,27 +50,34 @@ def compute_residuary_resistance(
     # and a plateau for light displacement semi-planing hulls at Fn > 0.50.
     
     # Base wave drag exponent function of Froude number
-    # Low speed (Fn < 0.25): negligible
-    # Medium speed (0.25 <= Fn < 0.45): rapid wave accumulation
-    # High speed (Fn >= 0.45): transition / semi-planing
-    if fn < 0.20:
-        cr_base = 0.0004 * (fn / 0.20) ** 4.0
-    elif fn < 0.35:
+    # Low speed (Fn < 0.18): negligible viscous wavelets
+    # Medium speed (0.18 <= Fn < 0.40): rapid wave accumulation up to hull speed (Fn ~ 0.40)
+    # High speed (Fn >= 0.40): steep displacement barrier for heavy cruisers vs dynamic lift for light skiffs
+    if fn < 0.18:
+        cr_base = 0.0003 * (fn / 0.18) ** 3.5
+    elif fn < 0.30:
         # Pre-hump region
-        t = (fn - 0.20) / 0.15
-        cr_base = 0.0004 + 0.0120 * (t ** 3.2)
-    elif fn < 0.45:
-        # Main displacement resistance hump (hull speed barrier)
-        t = (fn - 0.35) / 0.10
-        cr_base = 0.0124 + 0.0520 * (t ** 2.2)
+        t = (fn - 0.18) / 0.12
+        cr_base = 0.0003 + 0.0080 * (t ** 2.8)
+    elif fn < 0.40:
+        # Main displacement resistance hump (hull speed barrier at Fn ~ 0.40)
+        t = (fn - 0.30) / 0.10
+        cr_base = 0.0083 + 0.0750 * (t ** 2.2)
     else:
-        # Post-hump / semi-planing regime
-        t = fn - 0.45
-        cr_base = 0.0644 + 0.075 * t
+        # Post-hump / semi-planing vs displacement regime:
+        # Heavily governed by Length-Volume slenderness ratio (LVR) and displacement
+        t = fn - 0.40
+        # Planing ability index: 0.0 for heavy displacement (LVR <= 5.8), 1.0 for ultralight sportboats (LVR >= 7.0)
+        planing_ability = max(0.0, min(1.0, (lvr - 5.8) / 1.4))
+        # Non-planing heavy displacement hull: severe stern squat, wave train & energy dissipation barrier
+        cr_displacement = 0.0833 + 1.25 * (t ** 1.3) + 12.0 * (t ** 2.5)
+        # Planing hull: climbs out of displacement wave trough
+        cr_planing = 0.0833 + 0.090 * t
+        cr_base = cr_displacement * (1.0 - planing_ability) + cr_planing * planing_ability
 
     # Influence coefficients from Delft regression:
     # 1. Slenderness / Length-Volume ratio effect: heavier boats (lower LVR) have higher wave drag
-    f_lvr = (5.8 / max(lvr, 3.5)) ** 1.85
+    f_lvr = (5.8 / max(lvr, 3.5)) ** 2.2
 
     # 2. Beam-Draft ratio effect: wider/shallower hulls generate slightly wider wave patterns
     f_btr = (btr / 4.0) ** 0.35

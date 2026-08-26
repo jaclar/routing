@@ -769,6 +769,20 @@ body {
   border-right: 2px solid var(--border-color) !important;
 }
 
+.nogo-header {
+  color: #f87171 !important;
+  font-size: 0.73rem;
+}
+
+.nogo-row {
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.nogo-cell {
+  color: #64748b !important;
+  font-style: italic;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

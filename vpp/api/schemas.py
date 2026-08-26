@@ -232,7 +232,7 @@ class SolveMatrixRequest(BaseModel):
         description="List of True Wind Speeds in knots",
     )
     twa_list: Optional[List[float]] = Field(
-        default=[30.0, 35.0, 40.0, 45.0, 52.0, 60.0, 70.0, 80.0, 90.0, 110.0, 120.0, 135.0, 150.0, 165.0, 180.0],
+        default=[0.0, 10.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 52.0, 60.0, 70.0, 80.0, 90.0, 110.0, 120.0, 135.0, 150.0, 165.0, 180.0],
         description="List of True Wind Angles in degrees",
     )
     boat: Optional[BoatSchema] = Field(None, description="Custom boat configuration")

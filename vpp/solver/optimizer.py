@@ -94,7 +94,8 @@ def optimize_sail_trim(
                 current_x0 = (state.v_boat_ms, state.heel_rad, state.leeway_rad)
                 # Score function: prioritize speed, heavily penalize heel over max_heel_rad
                 excess_heel = max(state.heel_rad - max_heel_rad, 0.0)
-                score = state.v_boat_ms - 15.0 * (excess_heel ** 2)
+                penalty = 30.0 * excess_heel + 200.0 * (excess_heel ** 2)
+                score = state.v_boat_ms - penalty
 
                 if score > best_score:
                     best_score = score

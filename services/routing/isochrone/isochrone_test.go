@@ -173,9 +173,9 @@ func TestSanFranciscoToHawaii(t *testing.T) {
 		}
 	}
 
-	// Transpac distance is ~2,200 - 2,500 NM
-	if route.TotalDistanceNM < 2100.0 || route.TotalDistanceNM > 2900.0 {
-		t.Fatalf("Expected SF-Hawaii distance ~2100-2900 NM, got %.1f NM", route.TotalDistanceNM)
+	// Transpac distance is ~2,050 - 2,500 NM (Great Circle ~2,073 NM)
+	if route.TotalDistanceNM < 2000.0 || route.TotalDistanceNM > 2900.0 {
+		t.Fatalf("Expected SF-Hawaii distance ~2000-2900 NM, got %.1f NM", route.TotalDistanceNM)
 	}
 }
 
