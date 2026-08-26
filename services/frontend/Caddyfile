@@ -1,0 +1,34 @@
+:80 {
+    # Proxy Routing & Weather API to Go routing service
+    handle /api/v1/route* {
+        reverse_proxy routing-service:8080
+    }
+
+    handle /api/v1/weather* {
+        reverse_proxy routing-service:8080
+    }
+
+    handle /api/v1/health* {
+        reverse_proxy routing-service:8080
+    }
+
+    # Proxy VPP & Polar API to Python VPP service
+    handle /api/v1/presets* {
+        reverse_proxy vpp-service:8000
+    }
+
+    handle /api/v1/solve* {
+        reverse_proxy vpp-service:8000
+    }
+
+    handle /api/v1/plot* {
+        reverse_proxy vpp-service:8000
+    }
+
+    # Fallback for React SPA static assets & client-side routes
+    handle {
+        root * /usr/share/caddy
+        try_files {path} /index.html
+        file_server
+    }
+}
