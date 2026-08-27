@@ -4,13 +4,14 @@ import { MapView } from './components/MapView';
 import { TimelineScrubber } from './components/TimelineScrubber';
 import { LayerToggles } from './components/LayerToggles';
 import { VPPInspector } from './components/VPPInspector';
+import { PassageStatistics } from './components/PassageStatistics';
 import { BoatPreset, LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from './types';
 import { fetchPresets, calculateRoute, fetchWeatherGrid, fetchLandmaskPolygons, ROUTE_PRESETS } from './services/api';
-import { Map as MapIcon, Gauge } from 'lucide-react';
+import { Map as MapIcon, Gauge, BarChart3 } from 'lucide-react';
 import './styles/App.css';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'routing' | 'vpp'>('routing');
+  const [activeTab, setActiveTab] = useState<'routing' | 'stats' | 'vpp'>('routing');
   const [presets, setPresets] = useState<BoatPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>('36ft-ketch');
 
@@ -148,6 +149,13 @@ export const App: React.FC = () => {
           <span>Weather Routing & Passage</span>
         </button>
         <button
+          className={`tab-nav-btn ${activeTab === 'stats' ? 'active' : ''}`}
+          onClick={() => setActiveTab('stats')}
+        >
+          <BarChart3 size={16} />
+          <span>Passage Statistics & Plots</span>
+        </button>
+        <button
           className={`tab-nav-btn ${activeTab === 'vpp' ? 'active' : ''}`}
           onClick={() => setActiveTab('vpp')}
         >
@@ -187,7 +195,7 @@ export const App: React.FC = () => {
       />
 
       <div className="main-view">
-        {activeTab === 'routing' ? (
+        {activeTab === 'routing' && (
           <>
             <MapView
               startPoint={startPoint}
@@ -219,7 +227,13 @@ export const App: React.FC = () => {
               />
             )}
           </>
-        ) : (
+        )}
+
+        {activeTab === 'stats' && (
+          <PassageStatistics routeResult={routeResult} />
+        )}
+
+        {activeTab === 'vpp' && (
           <VPPInspector
             presets={presets}
             selectedPresetId={selectedPresetId}
