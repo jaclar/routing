@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { MapView } from './components/MapView';
 import { TimelineScrubber } from './components/TimelineScrubber';
 import { LayerToggles } from './components/LayerToggles';
+import { WaypointControls } from './components/WaypointControls';
 import { VPPInspector } from './components/VPPInspector';
 import { PassageStatistics } from './components/PassageStatistics';
 import { BoatPreset, LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from './types';
@@ -12,6 +13,7 @@ import './styles/App.css';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'routing' | 'stats' | 'vpp'>('routing');
+  const [placementMode, setPlacementMode] = useState<'start' | 'dest'>('start');
   const [presets, setPresets] = useState<BoatPreset[]>([]);
   const [selectedPresetId, setSelectedPresetId] = useState<string>('36ft-ketch');
 
@@ -200,6 +202,16 @@ export const App: React.FC = () => {
             <MapView
               startPoint={startPoint}
               destPoint={destPoint}
+              onStartChange={(p) => {
+                setStartPoint(p);
+                weatherCacheRef.current.clear();
+              }}
+              onDestChange={(p) => {
+                setDestPoint(p);
+                weatherCacheRef.current.clear();
+              }}
+              placementMode={placementMode}
+              onPlacementModeChange={setPlacementMode}
               routeResult={routeResult}
               currentWaypointIndex={currentWaypointIndex}
               weatherGrid={weatherGrid}
@@ -209,15 +221,24 @@ export const App: React.FC = () => {
               showLandmask={showLandmask}
             />
 
-            <LayerToggles
-              showIsochrones={showIsochrones}
-              onToggleIsochrones={() => setShowIsochrones(!showIsochrones)}
-              showWindGrid={showWindGrid}
-              onToggleWindGrid={() => setShowWindGrid(!showWindGrid)}
-              showLandmask={showLandmask}
-              onToggleLandmask={() => setShowLandmask(!showLandmask)}
-              activeTime={activeTime}
-            />
+            <div className="map-top-right-overlay">
+              <LayerToggles
+                showIsochrones={showIsochrones}
+                onToggleIsochrones={() => setShowIsochrones(!showIsochrones)}
+                showWindGrid={showWindGrid}
+                onToggleWindGrid={() => setShowWindGrid(!showWindGrid)}
+                showLandmask={showLandmask}
+                onToggleLandmask={() => setShowLandmask(!showLandmask)}
+                activeTime={activeTime}
+              />
+
+              <WaypointControls
+                startPoint={startPoint}
+                destPoint={destPoint}
+                placementMode={placementMode}
+                onSelectPlacementMode={setPlacementMode}
+              />
+            </div>
 
             {routeResult && (
               <TimelineScrubber

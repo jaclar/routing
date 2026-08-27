@@ -281,21 +281,34 @@ body {
   color: var(--text-main);
 }
 
-/* Layer toggles floating in top right */
-.layer-toggles {
+/* Top Right Overlay Stack (Layer toggles + Passage Waypoint Controls) */
+.map-top-right-overlay {
   position: absolute;
-  top: 20px;
-  right: 20px;
-  background: var(--bg-panel);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 10px 14px;
+  top: 18px;
+  right: 18px;
   z-index: 1000;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  width: 220px;
+  pointer-events: none;
+}
+
+.map-top-right-overlay > * {
+  pointer-events: auto;
+}
+
+.layer-toggles {
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
 
 .toggle-item {
@@ -1219,5 +1232,205 @@ body {
   color: var(--text-muted);
   line-height: 1.5;
 }
+
+/* ==========================================================================
+   Interactive Map Waypoint Creation & Draggable Pins
+   ========================================================================== */
+
+.map-view-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.waypoint-controls-card {
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.waypoint-controls-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  padding-bottom: 6px;
+}
+
+.waypoint-controls-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: 0.05em;
+}
+
+.waypoint-dist-badge {
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.waypoint-buttons-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.waypoint-pill-btn {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-color);
+  padding: 6px 10px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  outline: none;
+}
+
+.waypoint-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.waypoint-pill-btn.start-pill.active {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+}
+
+.waypoint-pill-btn.dest-pill.active {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+}
+
+.pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pill-dot-start { background: #10b981; box-shadow: 0 0 6px #10b981; }
+.pill-dot-dest { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+
+.pill-label {
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.pill-coords {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: #f8fafc;
+  margin-left: auto;
+}
+
+.waypoint-instruction-badge {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px dashed rgba(148, 163, 184, 0.2);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  color: #94a3b8;
+  text-align: center;
+}
+
+/* Draggable Pin Marker Styling */
+.custom-pin-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: grab !important;
+  user-select: none;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.65));
+  transition: transform 0.12s ease;
+}
+
+.custom-pin-container:hover {
+  transform: scale(1.1);
+  z-index: 9999 !important;
+}
+
+.custom-pin-container:active {
+  cursor: grabbing !important;
+  transform: scale(1.22);
+}
+
+.pin-bubble-start {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: white;
+  font-weight: 800;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.pin-bubble-dest {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  color: white;
+  font-weight: 800;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.pin-pointer {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #ffffff;
+  margin-top: -1px;
+}
+
+.map-click-hint-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  color: #94a3b8;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px dashed rgba(56, 189, 248, 0.25);
+  padding: 8px 10px;
+  border-radius: 8px;
+  line-height: 1.35;
+}
+
 
 

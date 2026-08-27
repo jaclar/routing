@@ -14,6 +14,10 @@ L.Icon.Default.mergeOptions({
 interface MapViewProps {
   startPoint: Point;
   destPoint: Point;
+  onStartChange: (p: Point) => void;
+  onDestChange: (p: Point) => void;
+  placementMode: 'start' | 'dest';
+  onPlacementModeChange: (mode: 'start' | 'dest') => void;
   routeResult: RouteResult | null;
   currentWaypointIndex: number;
   weatherGrid: WeatherGridResponse | null;
@@ -227,6 +231,10 @@ function renderWindHeatmapCanvas(weatherGrid: WeatherGridResponse): HTMLCanvasEl
 export const MapView: React.FC<MapViewProps> = ({
   startPoint,
   destPoint,
+  onStartChange,
+  onDestChange,
+  placementMode,
+  onPlacementModeChange,
   routeResult,
   currentWaypointIndex,
   weatherGrid,
@@ -237,10 +245,33 @@ export const MapView: React.FC<MapViewProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+
+  const placementModeRef = useRef<'start' | 'dest'>(placementMode);
+  const onStartChangeRef = useRef(onStartChange);
+  const onDestChangeRef = useRef(onDestChange);
+  const onPlacementModeChangeRef = useRef(onPlacementModeChange);
+
+  useEffect(() => {
+    onStartChangeRef.current = onStartChange;
+  }, [onStartChange]);
+
+  useEffect(() => {
+    onDestChangeRef.current = onDestChange;
+  }, [onDestChange]);
+
+  useEffect(() => {
+    placementModeRef.current = placementMode;
+  }, [placementMode]);
+
+  useEffect(() => {
+    onPlacementModeChangeRef.current = onPlacementModeChange;
+  }, [onPlacementModeChange]);
+
   const layersRef = useRef<{
     startMarker?: L.Marker;
     destMarker?: L.Marker;
     boatMarker?: L.Marker;
+    baselinePolyline?: L.Polyline;
     routePolyline?: L.Polyline;
     isochroneGroup?: L.LayerGroup;
     windGroup?: L.LayerGroup;
@@ -248,7 +279,7 @@ export const MapView: React.FC<MapViewProps> = ({
     landmaskGroup?: L.LayerGroup;
   }>({});
 
-  // 1. Initialize Map
+  // 1. Initialize Map and click handler
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -279,9 +310,24 @@ export const MapView: React.FC<MapViewProps> = ({
     layersRef.current.isochroneGroup = L.layerGroup().addTo(map);
     layersRef.current.windGroup = L.layerGroup().addTo(map);
 
+    // Click on map to place Start or Finish point
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      const clickedPt: Point = {
+        lat: Number(e.latlng.lat.toFixed(4)),
+        lon: Number(e.latlng.lng.toFixed(4)),
+      };
+
+      if (placementModeRef.current === 'start') {
+        onStartChangeRef.current?.(clickedPt);
+        onPlacementModeChangeRef.current?.('dest');
+      } else {
+        onDestChangeRef.current?.(clickedPt);
+        onPlacementModeChangeRef.current?.('start');
+      }
+    });
+
     mapRef.current = map;
 
-    // Trigger invalidateSize to force Leaflet layout inside flexbox container
     setTimeout(() => {
       if (mapRef.current) {
         mapRef.current.invalidateSize();
@@ -294,7 +340,7 @@ export const MapView: React.FC<MapViewProps> = ({
     };
   }, []);
 
-  // 2. Render Start & Destination Markers
+  // 2. Render Draggable Start & Destination Markers and Baseline Line
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -305,37 +351,112 @@ export const MapView: React.FC<MapViewProps> = ({
     if (layersRef.current.destMarker) {
       layersRef.current.destMarker.remove();
     }
+    if (layersRef.current.baselinePolyline) {
+      layersRef.current.baselinePolyline.remove();
+    }
 
     const startIcon = L.divIcon({
-      className: 'custom-pin-start',
-      html: `<div style="background:#10b981; color:#fff; font-weight:bold; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border:2px solid #fff; box-shadow:0 0 8px rgba(16,185,129,0.8);">S</div>`,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
+      className: 'custom-pin-container',
+      html: `
+        <div class="pin-bubble-start">
+          <span>⚓</span> START
+        </div>
+        <div class="pin-pointer"></div>
+      `,
+      iconSize: [68, 30],
+      iconAnchor: [34, 30],
     });
 
     const destIcon = L.divIcon({
-      className: 'custom-pin-dest',
-      html: `<div style="background:#ef4444; color:#fff; font-weight:bold; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border:2px solid #fff; box-shadow:0 0 8px rgba(239,68,68,0.8);">D</div>`,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
+      className: 'custom-pin-container',
+      html: `
+        <div class="pin-bubble-dest">
+          <span>🏁</span> FINISH
+        </div>
+        <div class="pin-pointer"></div>
+      `,
+      iconSize: [72, 30],
+      iconAnchor: [36, 30],
     });
 
-    layersRef.current.startMarker = L.marker([startPoint.lat, startPoint.lon], { icon: startIcon })
-      .bindPopup(`<b>Start Point</b><br/>Lat: ${startPoint.lat.toFixed(3)}<br/>Lon: ${startPoint.lon.toFixed(3)}`)
-      .addTo(map);
+    const updateBaseline = (p1: [number, number], p2: [number, number]) => {
+      if (layersRef.current.baselinePolyline) {
+        layersRef.current.baselinePolyline.setLatLngs([p1, p2]);
+      }
+    };
 
-    layersRef.current.destMarker = L.marker([destPoint.lat, destPoint.lon], { icon: destIcon })
-      .bindPopup(`<b>Destination Point</b><br/>Lat: ${destPoint.lat.toFixed(3)}<br/>Lon: ${destPoint.lon.toFixed(3)}`)
-      .addTo(map);
+    // Create Start Marker (Draggable)
+    const startMarker = L.marker([startPoint.lat, startPoint.lon], {
+      icon: startIcon,
+      draggable: true,
+      autoPan: true,
+      zIndexOffset: 600,
+    });
 
+    startMarker.on('drag', (e) => {
+      const latlng = (e.target as L.Marker).getLatLng();
+      updateBaseline([latlng.lat, latlng.lng], [destPoint.lat, destPoint.lon]);
+    });
+
+    startMarker.on('dragend', (e) => {
+      const latlng = (e.target as L.Marker).getLatLng();
+      onStartChangeRef.current?.({
+        lat: Number(latlng.lat.toFixed(4)),
+        lon: Number(latlng.lng.toFixed(4)),
+      });
+    });
+
+    startMarker.bindTooltip(
+      `<b>Start Point</b><br/>Lat: ${startPoint.lat.toFixed(4)}°<br/>Lon: ${startPoint.lon.toFixed(4)}°<br/><span style="color:#10b981; font-size:10px;">✋ Drag to move</span>`,
+      { direction: 'top', offset: [0, -26] }
+    );
+    startMarker.addTo(map);
+    layersRef.current.startMarker = startMarker;
+
+    // Create Destination Marker (Draggable)
+    const destMarker = L.marker([destPoint.lat, destPoint.lon], {
+      icon: destIcon,
+      draggable: true,
+      autoPan: true,
+      zIndexOffset: 600,
+    });
+
+    destMarker.on('drag', (e) => {
+      const latlng = (e.target as L.Marker).getLatLng();
+      updateBaseline([startPoint.lat, startPoint.lon], [latlng.lat, latlng.lng]);
+    });
+
+    destMarker.on('dragend', (e) => {
+      const latlng = (e.target as L.Marker).getLatLng();
+      onDestChangeRef.current?.({
+        lat: Number(latlng.lat.toFixed(4)),
+        lon: Number(latlng.lng.toFixed(4)),
+      });
+    });
+
+    destMarker.bindTooltip(
+      `<b>Finish Point</b><br/>Lat: ${destPoint.lat.toFixed(4)}°<br/>Lon: ${destPoint.lon.toFixed(4)}°<br/><span style="color:#ef4444; font-size:10px;">✋ Drag to move</span>`,
+      { direction: 'top', offset: [0, -26] }
+    );
+    destMarker.addTo(map);
+    layersRef.current.destMarker = destMarker;
+
+    // Draw connecting baseline
     if (!routeResult) {
-      const bounds = L.latLngBounds([
-        [startPoint.lat, startPoint.lon],
-        [destPoint.lat, destPoint.lon],
-      ]).pad(0.4);
-      map.fitBounds(bounds, { maxZoom: 8, animate: true });
+      layersRef.current.baselinePolyline = L.polyline(
+        [
+          [startPoint.lat, startPoint.lon],
+          [destPoint.lat, destPoint.lon],
+        ],
+        {
+          color: '#38bdf8',
+          weight: 1.8,
+          dashArray: '5, 6',
+          opacity: 0.65,
+        }
+      ).addTo(map);
     }
-  }, [startPoint, destPoint]);
+  }, [startPoint, destPoint, routeResult]);
 
   // 3. Render Wind Heatmap Background & Classical Wind Barbs
   useEffect(() => {

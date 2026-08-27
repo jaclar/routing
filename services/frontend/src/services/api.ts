@@ -38,6 +38,20 @@ export const ROUTE_PRESETS = [
   },
 ];
 
+export function calcDirectDistanceNM(p1: Point, p2: Point): number {
+  const R = 6371000; // meters
+  const dLat = ((p2.lat - p1.lat) * Math.PI) / 180;
+  const dLon = ((p2.lon - p1.lon) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((p1.lat * Math.PI) / 180) *
+      Math.cos((p2.lat * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return (R * c) / 1852; // NM
+}
+
 export async function fetchPresets(): Promise<BoatPreset[]> {
   try {
     const res = await fetch('/api/v1/presets');

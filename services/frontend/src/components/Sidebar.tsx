@@ -46,7 +46,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const currentBoat = presets.find((p) => p.id === selectedPresetId);
 
+  const matchingPresetIdx = ROUTE_PRESETS.findIndex(
+    (p) =>
+      Math.abs(p.start.lat - startPoint.lat) < 0.005 &&
+      Math.abs(p.start.lon - startPoint.lon) < 0.005 &&
+      Math.abs(p.dest.lat - destPoint.lat) < 0.005 &&
+      Math.abs(p.dest.lon - destPoint.lon) < 0.005
+  );
+  const selectedPresetValue = matchingPresetIdx >= 0 ? matchingPresetIdx.toString() : 'custom';
+
   const handleRoutePresetSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (e.target.value === 'custom') return;
     const idx = parseInt(e.target.value, 10);
     if (!isNaN(idx) && ROUTE_PRESETS[idx]) {
       onStartChange(ROUTE_PRESETS[idx].start);
@@ -141,10 +151,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="input-group">
-            <label>Passage Preset</label>
-            <select className="select-field" onChange={handleRoutePresetSelect} defaultValue="0">
+            <label>Passage Route Preset</label>
+            <select
+              className="select-field"
+              value={selectedPresetValue}
+              onChange={handleRoutePresetSelect}
+            >
+              {selectedPresetValue === 'custom' && (
+                <option value="custom">📍 Custom Coordinates (Map Placed / Dragged)</option>
+              )}
               {ROUTE_PRESETS.map((p, idx) => (
-                <option key={idx} value={idx}>
+                <option key={idx} value={idx.toString()}>
                   {p.name}
                 </option>
               ))}
@@ -156,14 +173,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="coords-row">
               <input
                 type="number"
-                step="0.01"
+                step="0.001"
                 className="input-field"
                 value={startPoint.lat}
                 onChange={(e) => onStartChange({ ...startPoint, lat: parseFloat(e.target.value) || 0 })}
               />
               <input
                 type="number"
-                step="0.01"
+                step="0.001"
                 className="input-field"
                 value={startPoint.lon}
                 onChange={(e) => onStartChange({ ...startPoint, lon: parseFloat(e.target.value) || 0 })}
@@ -176,19 +193,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="coords-row">
               <input
                 type="number"
-                step="0.01"
+                step="0.001"
                 className="input-field"
                 value={destPoint.lat}
                 onChange={(e) => onDestChange({ ...destPoint, lat: parseFloat(e.target.value) || 0 })}
               />
               <input
                 type="number"
-                step="0.01"
+                step="0.001"
                 className="input-field"
                 value={destPoint.lon}
                 onChange={(e) => onDestChange({ ...destPoint, lon: parseFloat(e.target.value) || 0 })}
               />
             </div>
+          </div>
+
+          <div className="map-click-hint-box">
+            <Navigation size={13} className="text-accent" />
+            <span>Click on map to place Start &amp; Finish, or drag pins on water.</span>
           </div>
         </div>
 
