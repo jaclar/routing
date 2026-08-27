@@ -216,7 +216,7 @@ body {
 .timeline-controls {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .play-btn {
@@ -230,11 +230,32 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.1s;
+  transition: transform 0.1s, background-color 0.2s;
+  flex-shrink: 0;
 }
 
 .play-btn:hover {
   transform: scale(1.08);
+  background: #7dd3fc;
+}
+
+.timeline-nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.timeline-nav-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .timeline-slider {
@@ -256,9 +277,78 @@ body {
   box-shadow: 0 0 10px var(--accent);
 }
 
+/* Speed Switcher (0.5x, 1x, 2x) */
+.speed-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-color);
+  padding: 3px 5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.speed-clock-icon {
+  color: var(--accent);
+  margin-left: 2px;
+}
+
+.speed-segmented-bar {
+  display: flex;
+  gap: 3px;
+}
+
+.speed-pill-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  outline: none;
+}
+
+.speed-pill-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.speed-pill-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.4);
+}
+
+.speed-subtext {
+  font-size: 0.62rem;
+  opacity: 0.85;
+  font-family: var(--font-mono);
+}
+
+.timeline-progress-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 3px 8px;
+  border-radius: 6px;
+  min-width: 42px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 .timeline-stats {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border-color);

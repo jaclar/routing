@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RouteResult } from '../types';
-import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Clock } from 'lucide-react';
 
 interface TimelineScrubberProps {
   routeResult: RouteResult;
@@ -8,26 +8,106 @@ interface TimelineScrubberProps {
   onIndexChange: (idx: number) => void;
 }
 
+export type AnimationSpeed = 0.5 | 1 | 2;
+
+// Speed to constant duration mapping as requested:
+// 0.5x -> 30s
+// 1x   -> 20s
+// 2x   -> 10s
+const SPEED_TO_DURATION_SEC: Record<AnimationSpeed, number> = {
+  0.5: 30,
+  1: 20,
+  2: 10,
+};
+
 export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   routeResult,
   currentIndex,
   onIndexChange,
 }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [speedMultiplier, setSpeedMultiplier] = useState<AnimationSpeed>(1);
+
   const totalWaypoints = routeResult.waypoints.length;
   const currentWp = routeResult.waypoints[currentIndex] || routeResult.waypoints[0];
+  const durationSec = SPEED_TO_DURATION_SEC[speedMultiplier];
+
+  const animRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const currentIndexRef = useRef<number>(currentIndex);
+  const isPlayingRef = useRef<boolean>(isPlaying);
+  const durationSecRef = useRef<number>(durationSec);
+
+  currentIndexRef.current = currentIndex;
+  isPlayingRef.current = isPlaying;
+  durationSecRef.current = durationSec;
+
+  const handlePlayToggle = () => {
+    if (!isPlaying) {
+      // If at or past the end, start over from 0
+      if (currentIndex >= totalWaypoints - 1) {
+        onIndexChange(0);
+        currentIndexRef.current = 0;
+      }
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(false);
+    }
+  };
+
+  const handleSpeedChange = (newSpeed: AnimationSpeed) => {
+    setSpeedMultiplier(newSpeed);
+    const newDurationSec = SPEED_TO_DURATION_SEC[newSpeed];
+    if (isPlayingRef.current && totalWaypoints > 1) {
+      // Adjust start time to preserve current progress without jumping
+      const progress = currentIndexRef.current / (totalWaypoints - 1);
+      startTimeRef.current = performance.now() - progress * (newDurationSec * 1000);
+    }
+  };
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        onIndexChange((currentIndex + 1) % totalWaypoints);
-      }, 350);
+    if (!isPlaying || totalWaypoints <= 1) {
+      if (animRef.current) {
+        cancelAnimationFrame(animRef.current);
+        animRef.current = null;
+      }
+      return;
     }
-    return () => {
-      if (interval) clearInterval(interval);
+
+    const totalDurMs = durationSecRef.current * 1000;
+    const initialProgress = currentIndexRef.current / (totalWaypoints - 1);
+    startTimeRef.current = performance.now() - initialProgress * totalDurMs;
+
+    const tick = (now: number) => {
+      if (!startTimeRef.current) startTimeRef.current = now;
+      const elapsed = now - startTimeRef.current;
+      const progress = Math.min(1, elapsed / (durationSecRef.current * 1000));
+      const targetIndex = Math.min(
+        totalWaypoints - 1,
+        Math.floor(progress * (totalWaypoints - 1))
+      );
+
+      if (targetIndex !== currentIndexRef.current) {
+        onIndexChange(targetIndex);
+      }
+
+      if (progress < 1) {
+        animRef.current = requestAnimationFrame(tick);
+      } else {
+        onIndexChange(totalWaypoints - 1);
+        setIsPlaying(false);
+      }
     };
-  }, [isPlaying, currentIndex, totalWaypoints, onIndexChange]);
+
+    animRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (animRef.current) {
+        cancelAnimationFrame(animRef.current);
+        animRef.current = null;
+      }
+    };
+  }, [isPlaying, totalWaypoints, onIndexChange]);
 
   const formatDate = (isoStr: string) => {
     try {
@@ -58,26 +138,33 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   };
 
   const pos = getPointOfSail(currentWp.twa_deg, currentWp.heading_deg, currentWp.twd_deg);
+  const progressPercent = totalWaypoints > 1 ? ((currentIndex / (totalWaypoints - 1)) * 100).toFixed(0) : '0';
 
   return (
     <div className="timeline-bar">
       <div className="timeline-controls">
+        {/* Play/Pause Button */}
         <button
           className="play-btn"
-          onClick={() => setIsPlaying(!isPlaying)}
-          title={isPlaying ? 'Pause' : 'Play'}
+          onClick={handlePlayToggle}
+          title={isPlaying ? 'Pause Animation' : 'Play Constant-Time Animation'}
         >
           {isPlaying ? <Pause size={18} /> : <Play size={18} />}
         </button>
 
+        {/* Skip to Start */}
         <button
-          style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
-          onClick={() => onIndexChange(0)}
-          title="Restart"
+          className="timeline-nav-btn"
+          onClick={() => {
+            setIsPlaying(false);
+            onIndexChange(0);
+          }}
+          title="Restart from Departure"
         >
           <SkipBack size={18} />
         </button>
 
+        {/* Timeline Slider */}
         <input
           type="range"
           min={0}
@@ -90,24 +177,67 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           className="timeline-slider"
         />
 
+        {/* Skip to Destination */}
         <button
-          style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
-          onClick={() => onIndexChange(totalWaypoints - 1)}
-          title="End of Route"
+          className="timeline-nav-btn"
+          onClick={() => {
+            setIsPlaying(false);
+            onIndexChange(totalWaypoints - 1);
+          }}
+          title="Jump to Destination"
         >
           <SkipForward size={18} />
         </button>
+
+        {/* Constant-Time Animation Speed Switcher (0.5x: 30s | 1x: 20s | 2x: 10s) */}
+        <div className="speed-controls-group">
+          <Clock size={13} className="speed-clock-icon" />
+          <div className="speed-segmented-bar">
+            <button
+              type="button"
+              className={`speed-pill-btn ${speedMultiplier === 0.5 ? 'active' : ''}`}
+              onClick={() => handleSpeedChange(0.5)}
+              title="0.5x Speed — 30 seconds total visualization"
+            >
+              0.5x
+            </button>
+            <button
+              type="button"
+              className={`speed-pill-btn ${speedMultiplier === 1 ? 'active' : ''}`}
+              onClick={() => handleSpeedChange(1)}
+              title="1x Speed (Standard) — 20 seconds total visualization"
+            >
+              1x
+            </button>
+            <button
+              type="button"
+              className={`speed-pill-btn ${speedMultiplier === 2 ? 'active' : ''}`}
+              onClick={() => handleSpeedChange(2)}
+              title="2x Speed (Fast) — 10 seconds total visualization"
+            >
+              2x
+            </button>
+          </div>
+        </div>
+
+        {/* Progress % */}
+        <span className="timeline-progress-badge">{progressPercent}%</span>
       </div>
 
+      {/* Real-time Passage Telemetry Grid */}
       <div className="timeline-stats">
         <div className="stat-box">
           <span className="stat-label">TIME (UTC)</span>
-          <span className="stat-value" style={{ fontSize: '0.75rem' }}>{formatDate(currentWp.time)}</span>
+          <span className="stat-value" style={{ fontSize: '0.75rem' }}>
+            {formatDate(currentWp.time)}
+          </span>
         </div>
 
         <div className="stat-box">
           <span className="stat-label">BOAT SPEED</span>
-          <span className="stat-value" style={{ color: '#38bdf8' }}>{currentWp.boat_speed_kts.toFixed(2)} kts</span>
+          <span className="stat-value" style={{ color: '#38bdf8' }}>
+            {currentWp.boat_speed_kts.toFixed(2)} kts
+          </span>
         </div>
 
         <div className="stat-box">
@@ -117,7 +247,9 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
         <div className="stat-box">
           <span className="stat-label">TRUE WIND</span>
-          <span className="stat-value">{currentWp.tws_kts.toFixed(1)} kts @ {currentWp.twd_deg.toFixed(0)}°</span>
+          <span className="stat-value">
+            {currentWp.tws_kts.toFixed(1)} kts @ {currentWp.twd_deg.toFixed(0)}°
+          </span>
         </div>
 
         <div className="stat-box">
@@ -134,7 +266,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
         <div className="stat-box">
           <span className="stat-label">HEEL ANGLE</span>
-          <span className="stat-value" style={{ color: currentWp.estimated_heel_deg > 20 ? '#f59e0b' : '#10b981' }}>
+          <span
+            className="stat-value"
+            style={{ color: currentWp.estimated_heel_deg > 20 ? '#f59e0b' : '#10b981' }}
+          >
             {currentWp.estimated_heel_deg.toFixed(1)}°
           </span>
         </div>
