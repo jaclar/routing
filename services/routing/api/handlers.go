@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
 	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
@@ -70,6 +71,25 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 		// Scale arrival capture radius dynamically with time step (e.g. ~0.5 NM for 5-min step)
 		stepDistanceEstNM := req.TimeStepHours * 6.5
 		cfg.ArrivalRadiusNM = math.Max(0.5, math.Min(stepDistanceEstNM*1.1, 12.0))
+	} else {
+		// Automatic sane default based on great-circle passage distance
+		directDistNM := geo.DistanceNM(req.Start, req.Dest)
+		if directDistNM <= 100 {
+			cfg.TimeStep = 5 * time.Minute
+			cfg.ArrivalRadiusNM = 0.6
+		} else if directDistNM <= 250 {
+			cfg.TimeStep = 15 * time.Minute
+			cfg.ArrivalRadiusNM = 1.6
+		} else if directDistNM <= 500 {
+			cfg.TimeStep = 30 * time.Minute
+			cfg.ArrivalRadiusNM = 3.5
+		} else if directDistNM <= 1200 {
+			cfg.TimeStep = 1 * time.Hour
+			cfg.ArrivalRadiusNM = 7.0
+		} else {
+			cfg.TimeStep = 2 * time.Hour
+			cfg.ArrivalRadiusNM = 12.0
+		}
 	}
 	if req.TackPenaltyMinutes != nil {
 		cfg.TackPenaltyMinutes = *req.TackPenaltyMinutes

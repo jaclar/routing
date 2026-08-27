@@ -7,7 +7,7 @@ import { WaypointControls } from './components/WaypointControls';
 import { VPPInspector } from './components/VPPInspector';
 import { PassageStatistics } from './components/PassageStatistics';
 import { BoatPreset, LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from './types';
-import { fetchPresets, calculateRoute, fetchWeatherGrid, fetchLandmaskPolygons, ROUTE_PRESETS } from './services/api';
+import { fetchPresets, calculateRoute, fetchWeatherGrid, fetchLandmaskPolygons, ROUTE_PRESETS, calcDirectDistanceNM, getSaneDefaultTimeStepHours } from './services/api';
 import { Map as MapIcon, Gauge, BarChart3 } from 'lucide-react';
 import './styles/App.css';
 
@@ -22,7 +22,10 @@ export const App: React.FC = () => {
   const [departureTime, setDepartureTime] = useState<string>(
     new Date().toISOString().slice(0, 16)
   );
-  const [timeStepHours, setTimeStepHours] = useState<number>(5 / 60);
+  const [timeStepHours, setTimeStepHours] = useState<number>(() => {
+    const d = calcDirectDistanceNM(ROUTE_PRESETS[0].start, ROUTE_PRESETS[0].dest);
+    return getSaneDefaultTimeStepHours(d);
+  });
   const [tackPenaltyMinutes, setTackPenaltyMinutes] = useState<number>(5.0);
   const [gybePenaltyMinutes, setGybePenaltyMinutes] = useState<number>(8.0);
 
@@ -139,6 +142,20 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleStartPointChange = useCallback((newStart: Point) => {
+    setStartPoint(newStart);
+    weatherCacheRef.current.clear();
+    const d = calcDirectDistanceNM(newStart, destPoint);
+    setTimeStepHours(getSaneDefaultTimeStepHours(d));
+  }, [destPoint]);
+
+  const handleDestPointChange = useCallback((newDest: Point) => {
+    setDestPoint(newDest);
+    weatherCacheRef.current.clear();
+    const d = calcDirectDistanceNM(startPoint, newDest);
+    setTimeStepHours(getSaneDefaultTimeStepHours(d));
+  }, [startPoint]);
+
   return (
     <div className="app-container">
       {/* Top Main Navigation Tabs */}
@@ -172,14 +189,8 @@ export const App: React.FC = () => {
         onSelectPreset={setSelectedPresetId}
         startPoint={startPoint}
         destPoint={destPoint}
-        onStartChange={(p) => {
-          setStartPoint(p);
-          weatherCacheRef.current.clear();
-        }}
-        onDestChange={(p) => {
-          setDestPoint(p);
-          weatherCacheRef.current.clear();
-        }}
+        onStartChange={handleStartPointChange}
+        onDestChange={handleDestPointChange}
         departureTime={departureTime}
         onDepartureTimeChange={(t) => {
           setDepartureTime(t);
@@ -202,14 +213,8 @@ export const App: React.FC = () => {
             <MapView
               startPoint={startPoint}
               destPoint={destPoint}
-              onStartChange={(p) => {
-                setStartPoint(p);
-                weatherCacheRef.current.clear();
-              }}
-              onDestChange={(p) => {
-                setDestPoint(p);
-                weatherCacheRef.current.clear();
-              }}
+              onStartChange={handleStartPointChange}
+              onDestChange={handleDestPointChange}
               placementMode={placementMode}
               onPlacementModeChange={setPlacementMode}
               routeResult={routeResult}

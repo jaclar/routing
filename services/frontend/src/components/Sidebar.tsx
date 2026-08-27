@@ -1,7 +1,7 @@
 import React from 'react';
 import { BoatPreset, Point, RouteResult } from '../types';
-import { ROUTE_PRESETS } from '../services/api';
-import { Compass, Navigation, Wind, Anchor, Download, Play, Gauge } from 'lucide-react';
+import { ROUTE_PRESETS, calcDirectDistanceNM, getSaneDefaultTimeStepHours } from '../services/api';
+import { Compass, Navigation, Wind, Anchor, Download, Play, Gauge, Sparkles, RefreshCw } from 'lucide-react';
 
 interface SidebarProps {
   presets: BoatPreset[];
@@ -46,6 +46,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const currentBoat = presets.find((p) => p.id === selectedPresetId);
 
+  const directDistNM = calcDirectDistanceNM(startPoint, destPoint);
+  const recommendedStep = getSaneDefaultTimeStepHours(directDistNM);
+
+  const formatStepLabel = (hours: number) => {
+    const mins = Math.round(hours * 60);
+    if (mins < 60) return `${mins} min`;
+    return `${hours} hr`;
+  };
+
   const matchingPresetIdx = ROUTE_PRESETS.findIndex(
     (p) =>
       Math.abs(p.start.lat - startPoint.lat) < 0.005 &&
@@ -59,8 +68,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (e.target.value === 'custom') return;
     const idx = parseInt(e.target.value, 10);
     if (!isNaN(idx) && ROUTE_PRESETS[idx]) {
-      onStartChange(ROUTE_PRESETS[idx].start);
-      onDestChange(ROUTE_PRESETS[idx].dest);
+      const preset = ROUTE_PRESETS[idx];
+      onStartChange(preset.start);
+      onDestChange(preset.dest);
+      const d = calcDirectDistanceNM(preset.start, preset.dest);
+      onTimeStepChange(getSaneDefaultTimeStepHours(d));
     }
   };
 
@@ -232,20 +244,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="input-group">
-            <label>Isochrone Time Step</label>
-            <select
-              className="select-field"
-              value={timeStepHours}
-              onChange={(e) => onTimeStepChange(parseFloat(e.target.value))}
-            >
-              <option value={5 / 60}>5 Minutes (Ultra-High / Short Passage)</option>
-              <option value={10 / 60}>10 Minutes (Coastal & Inshore)</option>
-              <option value={15 / 60}>15 Minutes (High Precision)</option>
-              <option value={30 / 60}>30 Minutes (Channel Crossing)</option>
-              <option value={1}>1 Hour (Standard Passage)</option>
-              <option value={2}>2 Hours (Offshore Passage)</option>
-              <option value={6}>6 Hours (Fast Trans-Ocean)</option>
-            </select>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span>Isochrone Time Step</span>
+              </label>
+              <span className="auto-step-indicator" title={`Automatic sane default for ${directDistNM.toFixed(0)} NM passage`}>
+                <Sparkles size={11} className="text-accent" /> Auto: {formatStepLabel(recommendedStep)} ({directDistNM.toFixed(0)} NM)
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <select
+                className="select-field"
+                style={{ flex: 1 }}
+                value={timeStepHours}
+                onChange={(e) => onTimeStepChange(parseFloat(e.target.value))}
+              >
+                <option value={5 / 60}>
+                  5 Minutes {Math.abs(recommendedStep - 5 / 60) < 0.001 ? '★ (Auto Default)' : '— Short (<100 NM)'}
+                </option>
+                <option value={10 / 60}>
+                  10 Minutes {Math.abs(recommendedStep - 10 / 60) < 0.001 ? '★ (Auto Default)' : '— Coastal / Inshore'}
+                </option>
+                <option value={15 / 60}>
+                  15 Minutes {Math.abs(recommendedStep - 15 / 60) < 0.001 ? '★ (Auto Default)' : '— Channel (100–250 NM)'}
+                </option>
+                <option value={30 / 60}>
+                  30 Minutes {Math.abs(recommendedStep - 30 / 60) < 0.001 ? '★ (Auto Default)' : '— Offshore (250–500 NM)'}
+                </option>
+                <option value={1}>
+                  1 Hour {Math.abs(recommendedStep - 1) < 0.001 ? '★ (Auto Default)' : '— Ocean (500–1200 NM)'}
+                </option>
+                <option value={2}>
+                  2 Hours {Math.abs(recommendedStep - 2) < 0.001 ? '★ (Auto Default)' : '— Trans-Ocean (>1200 NM)'}
+                </option>
+                <option value={6}>
+                  6 Hours — Fast Preview
+                </option>
+              </select>
+
+              {Math.abs(timeStepHours - recommendedStep) >= 0.001 && (
+                <button
+                  type="button"
+                  className="btn-reset-auto-step"
+                  onClick={() => onTimeStepChange(recommendedStep)}
+                  title={`Reset to recommended auto default (${formatStepLabel(recommendedStep)})`}
+                >
+                  <RefreshCw size={13} />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Maneuver Penalties (Cruising vs Racing) */}

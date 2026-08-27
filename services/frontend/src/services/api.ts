@@ -52,6 +52,22 @@ export function calcDirectDistanceNM(p1: Point, p2: Point): number {
   return (R * c) / 1852; // NM
 }
 
+/**
+ * Returns a sane default isochrone time step (in hours) based on great-circle passage distance:
+ * - <= 100 NM:   5 minutes  (5/60 h)   -> High precision for inshore & island passages (e.g. Grenada -> Trinidad)
+ * - 100-250 NM:  15 minutes (15/60 h)  -> Precision for channels & straits
+ * - 250-500 NM:  30 minutes (0.5 h)    -> Fastnet, coastal races, medium passages (e.g. Cowes -> Fastnet)
+ * - 500-1200 NM: 1 hour     (1.0 h)    -> Offshore & Bermuda crossings (e.g. Newport -> Bermuda)
+ * - > 1200 NM:   2 hours    (2.0 h)    -> Ocean crossings (e.g. San Francisco -> Hawaii)
+ */
+export function getSaneDefaultTimeStepHours(distNM: number): number {
+  if (distNM <= 100) return 5 / 60;
+  if (distNM <= 250) return 15 / 60;
+  if (distNM <= 500) return 30 / 60;
+  if (distNM <= 1200) return 1.0;
+  return 2.0;
+}
+
 export async function fetchPresets(): Promise<BoatPreset[]> {
   try {
     const res = await fetch('/api/v1/presets');
