@@ -238,6 +238,8 @@ class SolveMatrixRequest(BaseModel):
     boat: Optional[BoatSchema] = Field(None, description="Custom boat configuration")
     preset_name: Optional[str] = Field("36ft-ketch", description="Preset boat name")
     max_heel_deg: float = Field(28.0, description="Maximum heel limit [degrees]")
+    speed_matrix: Optional[List[List[float]]] = Field(None, description="Precomputed speed matrix [len(tws), len(twa)] in knots")
+    boat_name: Optional[str] = Field(None, description="Display boat name for polar table and plots")
 
 
 class VMGTargetResponse(BaseModel):

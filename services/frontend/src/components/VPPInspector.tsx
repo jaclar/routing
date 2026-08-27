@@ -12,6 +12,7 @@ import {
   fetchPlotImageBlob,
   fetchPolarMatrix,
   parseAndValidateBoatJSON,
+  parsePolFile,
 } from '../services/api';
 import { CustomBoatBuilderModal } from './CustomBoatBuilderModal';
 import {
@@ -31,6 +32,7 @@ import {
   Edit,
   Trash2,
   FileJson,
+  FileText,
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
@@ -72,6 +74,7 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const polFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const currentPreset = presets.find((p) => p.id === selectedPresetId);
   const isCustomBoat = Boolean(currentPreset?.isCustom);
@@ -90,9 +93,9 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
     setLoading(true);
 
     const presetObj = presets.find((p) => p.id === selectedPresetId);
-    if (presetObj?.customBoat && presetObj.polarData) {
-      // Fast path for in-memory / uploaded custom boat with polar data
-      setBoatDetail(presetObj.customBoat);
+    if (presetObj?.polarData) {
+      // In-memory / uploaded custom boat or .pol file with polar data (No VPP solve needed!)
+      setBoatDetail(presetObj.customBoat || null);
       setPolarData(presetObj.polarData);
       setLoading(false);
       return;
@@ -125,7 +128,15 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
     let isMounted = true;
     setLoadingPlot(true);
 
-    const targetBoatOrPreset = currentPreset?.customBoat || selectedPresetId;
+    const presetObj = presets.find((p) => p.id === selectedPresetId);
+
+    // Resistance breakdown is not available for pure .pol input files (needs 3D hull geometry)
+    if (activePlotTab === 'resistance' && presetObj?.isPolFileOnly) {
+      setLoadingPlot(false);
+      return;
+    }
+
+    const targetBoatOrPreset = presetObj?.polarData || presetObj?.customBoat || selectedPresetId;
 
     fetchPlotImageBlob(activePlotTab, targetBoatOrPreset, heelAngle)
       .then((blobUrl) => {
@@ -142,13 +153,13 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activePlotTab, selectedPresetId, heelAngle, currentPreset]);
+  }, [activePlotTab, selectedPresetId, heelAngle, currentPreset, presets]);
 
   // Handlers for Export
   const handleExportORC = async () => {
     try {
       setExporting(true);
-      const target = currentPreset?.customBoat || selectedPresetId;
+      const target = currentPreset?.polarData || currentPreset?.customBoat || selectedPresetId;
       const text = await exportORCPolFile(target);
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
@@ -167,7 +178,7 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
   const handleExportCSV = async () => {
     try {
       setExporting(true);
-      const target = currentPreset?.customBoat || selectedPresetId;
+      const target = currentPreset?.polarData || currentPreset?.customBoat || selectedPresetId;
       const text = await exportCSVPolFile(target);
       const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
@@ -185,11 +196,49 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
 
   // Download complete Boat Specs + Polar JSON
   const handleDownloadJSON = () => {
-    if (!boatDetail) return;
-    exportCustomBoatJSON(boatDetail, polarData || undefined);
+    if (!polarData) return;
+    const fallbackBoat: BoatDetail = boatDetail || {
+      name: currentPreset?.name || 'Custom Polar Yacht',
+      hull: {
+        loa: currentPreset?.loa_m || 12.0,
+        lwl: (currentPreset?.loa_m || 12.0) * 0.85,
+        b_max: currentPreset?.beam_m || 3.8,
+        b_wl: (currentPreset?.beam_m || 3.8) * 0.88,
+        draft_canoe: (currentPreset?.draft_m || 2.2) * 0.35,
+        draft_total: currentPreset?.draft_m || 2.2,
+        displacement_mass: currentPreset?.displacement_kg || 7500,
+        prismatic_coef: 0.56,
+        form_factor_k: 0.12,
+        lcb_fraction: 0.52,
+      },
+      appendages: {
+        keel_type: 'fin_bulb',
+        keel_area: 2.0,
+        keel_span: 1.6,
+        rudder_area: 0.9,
+        rudder_span: 1.3,
+      },
+      rig: {
+        rig_type: currentPreset?.rig_type || 'sloop',
+        main_p: 14.5,
+        main_e: 4.8,
+        fore_i: 15.2,
+        fore_j: 4.5,
+        mast_height_above_water: 18.0,
+        boom_height_above_water: 1.9,
+      },
+      stability: {
+        gmt: 1.2,
+        crew_mass: 400,
+        crew_hiking_distance: 1.6,
+        crew_hiking_fraction: 0.8,
+      },
+    };
+
+    exportCustomBoatJSON(fallbackBoat, polarData || undefined);
     setStatusNotification({
       type: 'success',
-      msg: `Saved "${boatDetail.name}" and polars to JSON file!`,
+      msg: `Saved "${fallbackBoat.name}" and polars to JSON file!`,
     });
   };
 
@@ -205,7 +254,6 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
 
       let matrix = parsedFile.polars;
       if (!matrix) {
-        // Compute matrix if not present in the file
         matrix = await fetchPolarMatrix(parsedFile.boat);
       }
 
@@ -230,7 +278,7 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
         msg: `Successfully imported "${parsedFile.boat.name}"!`,
       });
     } catch (err: any) {
-      console.error('File import failed:', err);
+      console.error('JSON file import failed:', err);
       setStatusNotification({
         type: 'error',
         msg: `Import failed: ${err.message}`,
@@ -238,6 +286,48 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Direct .POL File Upload (No VPP solving!)
+  const handlePolFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      const text = await file.text();
+      const parsedPolar = parsePolFile(text, file.name);
+
+      const customId = `pol-${Date.now()}`;
+      const preset: BoatPreset = {
+        id: customId,
+        name: parsedPolar.boat_name,
+        loa_m: 12.0,
+        beam_m: 3.8,
+        draft_m: 2.2,
+        displacement_kg: 7500,
+        rig_type: 'pol',
+        isCustom: true,
+        isPolFileOnly: true,
+        polarData: parsedPolar,
+      };
+
+      onAddCustomBoat(preset);
+      onSelectPreset(customId);
+      setStatusNotification({
+        type: 'success',
+        msg: `Successfully imported "${parsedPolar.boat_name}" (.pol data: ${parsedPolar.tws_list.length} TWS x ${parsedPolar.twa_list.length} TWA)!`,
+      });
+    } catch (err: any) {
+      console.error('POL upload failed:', err);
+      setStatusNotification({
+        type: 'error',
+        msg: `POL parse failed: ${err.message}`,
+      });
+    } finally {
+      setLoading(false);
+      if (polFileInputRef.current) polFileInputRef.current.value = '';
     }
   };
 
@@ -315,6 +405,15 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
         onChange={handleFileUpload}
       />
 
+      {/* Hidden File Input for standard .pol polar table upload */}
+      <input
+        type="file"
+        ref={polFileInputRef}
+        accept=".pol,.txt"
+        style={{ display: 'none' }}
+        onChange={handlePolFileUpload}
+      />
+
       {/* Top Header Bar */}
       <div className="vpp-top-bar">
         <div className="vpp-title-section">
@@ -347,7 +446,7 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
                 <optgroup label="Custom User Yachts">
                   {customList.map((p) => (
                     <option key={p.id} value={p.id}>
-                      🛠️ {p.name} ({p.rig_type.toUpperCase()})
+                      {p.isPolFileOnly ? '📁' : '🛠️'} {p.name} ({p.isPolFileOnly ? 'POL' : p.rig_type.toUpperCase()})
                     </option>
                   ))}
                 </optgroup>
@@ -359,10 +458,20 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
           <button
             className="vpp-btn-action btn-create-boat"
             onClick={handleOpenCreateModal}
-            title="Create and solve a new custom yacht"
+            title="Create and solve a new custom yacht from parameters"
           >
             <Plus size={15} />
             <span>Create Boat</span>
+          </button>
+
+          {/* Upload .POL File Button */}
+          <button
+            className="vpp-btn-action btn-upload-pol"
+            onClick={() => polFileInputRef.current?.click()}
+            title="Upload standard ORC / OpenCPN / Expedition *.pol polar table (direct data input, no VPP calculation)"
+          >
+            <FileText size={15} />
+            <span>Upload .POL</span>
           </button>
 
           {/* Upload Boat JSON Button */}
@@ -375,12 +484,12 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
             <span>Upload JSON</span>
           </button>
 
-          {/* Download JSON Button (Always available to save current boat + calculations) */}
+          {/* Download JSON Button */}
           <button
             className="vpp-btn-action btn-download-json"
             onClick={handleDownloadJSON}
-            disabled={!boatDetail || loading}
-            title="Download complete vessel specifications & polar matrix as .json"
+            disabled={!polarData || loading}
+            title="Download vessel specifications & polar matrix as .json"
           >
             <FileJson size={15} />
             <span>Download JSON</span>
@@ -389,13 +498,15 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
           {/* Custom boat Edit / Delete actions */}
           {isCustomBoat && (
             <>
-              <button
-                className="vpp-btn-icon-action"
-                onClick={handleOpenEditModal}
-                title="Edit vessel dimensions & recalculate polars"
-              >
-                <Edit size={15} />
-              </button>
+              {!currentPreset?.isPolFileOnly && (
+                <button
+                  className="vpp-btn-icon-action"
+                  onClick={handleOpenEditModal}
+                  title="Edit vessel dimensions & recalculate polars"
+                >
+                  <Edit size={15} />
+                </button>
+              )}
               <button
                 className="vpp-btn-icon-action text-danger"
                 onClick={handleDeleteCurrentCustomBoat}
@@ -448,14 +559,70 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
       {loading ? (
         <div className="vpp-loading-state">
           <RefreshCw size={32} className="spin" color="#38bdf8" />
-          <span>Solving 3-DOF Aero-Hydro Equilibrium Equations...</span>
+          <span>Loading Polar Performance Curves & Matrix...</span>
         </div>
       ) : (
         <div className="vpp-content-layout">
           {/* Left Column: Boat Specs & VMG Targets */}
           <div className="vpp-left-pane">
-            {/* 1. Geometry & Naval Architecture Specifications */}
-            {boatDetail && (
+            {/* 1. Geometry or .POL Summary Card */}
+            {currentPreset?.isPolFileOnly ? (
+              <div className="vpp-card">
+                <div className="vpp-card-header">
+                  <FileText size={16} color="#c084fc" />
+                  <h3>📁 {currentPreset.name}</h3>
+                  <span
+                    className="custom-boat-badge"
+                    style={{
+                      backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                      borderColor: 'rgba(168, 85, 247, 0.35)',
+                      color: '#c084fc',
+                    }}
+                  >
+                    .POL File Input
+                  </span>
+                </div>
+                <div className="vpp-specs-grid">
+                  <div className="vpp-spec-item">
+                    <span className="spec-label">Input Source</span>
+                    <span className="spec-value font-bold" style={{ color: '#c084fc' }}>
+                      Imported .POL Table
+                    </span>
+                  </div>
+                  <div className="vpp-spec-item">
+                    <span className="spec-label">VPP Physics Solver</span>
+                    <span className="spec-value" style={{ color: '#94a3b8' }}>
+                      Direct Polar Input
+                    </span>
+                  </div>
+                  <div className="vpp-spec-item">
+                    <span className="spec-label">Wind Speeds (TWS)</span>
+                    <span className="spec-value font-bold" style={{ color: '#38bdf8' }}>
+                      {polarData?.tws_list.length || 0} speeds ({polarData?.tws_list.join(', ')} kts)
+                    </span>
+                  </div>
+                  <div className="vpp-spec-item">
+                    <span className="spec-label">Wind Angles (TWA)</span>
+                    <span className="spec-value">
+                      {polarData?.twa_list.length || 0} angles ({polarData?.twa_list[0]}° to{' '}
+                      {polarData?.twa_list[polarData.twa_list.length - 1]}°)
+                    </span>
+                  </div>
+                  <div className="vpp-spec-item">
+                    <span className="spec-label">Total Matrix Cells</span>
+                    <span className="spec-value font-bold">
+                      {polarData ? polarData.tws_list.length * polarData.twa_list.length : 0} points
+                    </span>
+                  </div>
+                  <div className="vpp-spec-item">
+                    <span className="spec-label">VMG Targets Computed</span>
+                    <span className="spec-value font-bold" style={{ color: '#10b981' }}>
+                      {polarData ? Object.keys(polarData.upwind_vmg_targets).length * 2 : 0} targets
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : boatDetail ? (
               <div className="vpp-card">
                 <div className="vpp-card-header">
                   <Layers size={16} color="#38bdf8" />
@@ -535,7 +702,7 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* 2. Optimal Upwind / Downwind VMG Targets */}
             {polarData && (
@@ -616,16 +783,18 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
                     <LineChart size={15} />
                     <span>Performance Curves</span>
                   </button>
-                  <button
-                    className={`vpp-tab-btn ${activePlotTab === 'resistance' ? 'active' : ''}`}
-                    onClick={() => setActivePlotTab('resistance')}
-                  >
-                    <Wind size={15} />
-                    <span>Hydro Resistance</span>
-                  </button>
+                  {!currentPreset?.isPolFileOnly && (
+                    <button
+                      className={`vpp-tab-btn ${activePlotTab === 'resistance' ? 'active' : ''}`}
+                      onClick={() => setActivePlotTab('resistance')}
+                    >
+                      <Wind size={15} />
+                      <span>Hydro Resistance</span>
+                    </button>
+                  )}
                 </div>
 
-                {activePlotTab === 'resistance' && (
+                {activePlotTab === 'resistance' && !currentPreset?.isPolFileOnly && (
                   <div className="vpp-heel-control">
                     <Sliders size={14} color="#38bdf8" />
                     <span>Heel Angle: {heelAngle}°</span>
@@ -643,7 +812,29 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
               </div>
 
               <div className="vpp-plot-display">
-                {loadingPlot ? (
+                {currentPreset?.isPolFileOnly && activePlotTab === 'resistance' ? (
+                  <div
+                    className="vpp-plot-empty"
+                    style={{
+                      padding: '30px',
+                      textAlign: 'center',
+                      color: '#94a3b8',
+                      maxWidth: '440px',
+                    }}
+                  >
+                    <Layers size={36} color="#64748b" style={{ marginBottom: '12px' }} />
+                    <h4 style={{ color: '#f8fafc', marginBottom: '8px' }}>
+                      Hydrodynamic Resistance Unavailable
+                    </h4>
+                    <p style={{ fontSize: '0.82rem', lineHeight: '1.5' }}>
+                      Decomposing hydrodynamic resistance requires 3D hull geometry parameters.
+                    </p>
+                    <p style={{ fontSize: '0.82rem', marginTop: '6px', color: '#38bdf8' }}>
+                      For imported <b>.POL</b> files, sailing performance is rendered directly in the{' '}
+                      <b>Polar Diagram</b> and <b>Performance Curves</b> tabs.
+                    </p>
+                  </div>
+                ) : loadingPlot ? (
                   <div className="vpp-plot-loading">
                     <RefreshCw size={28} className="spin" color="#38bdf8" />
                     <span>Rendering Matplotlib Vector Graph...</span>

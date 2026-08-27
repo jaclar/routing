@@ -12,6 +12,7 @@ export interface BoatPreset {
   displacement_kg: number;
   rig_type: string;
   isCustom?: boolean;
+  isPolFileOnly?: boolean;
   customBoat?: BoatDetail;
   polarData?: SolveMatrixResponse;
 }

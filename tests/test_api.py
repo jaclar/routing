@@ -156,3 +156,39 @@ def test_api_plot_resistance():
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert response.content[:4] == b"\x89PNG"
+
+
+def test_api_direct_polar_matrix():
+    payload = {
+        "boat_name": "Direct POL Boat",
+        "tws_list": [6.0, 10.0],
+        "twa_list": [40.0, 90.0, 140.0],
+        "speed_matrix": [
+            [4.0, 5.0, 4.5],
+            [5.5, 7.0, 6.2],
+        ],
+    }
+    response = client.post("/api/v1/solve/matrix", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["boat_name"] == "Direct POL Boat"
+    assert data["speed_matrix"] == [[4.0, 5.0, 4.5], [5.5, 7.0, 6.2]]
+    assert "6.0" in data["upwind_vmg_targets"]
+    assert "10.0" in data["downwind_vmg_targets"]
+
+
+def test_api_direct_polar_plot():
+    payload = {
+        "boat_name": "Direct POL Boat",
+        "tws_list": [6.0, 10.0],
+        "twa_list": [40.0, 90.0, 140.0],
+        "speed_matrix": [
+            [4.0, 5.0, 4.5],
+            [5.5, 7.0, 6.2],
+        ],
+    }
+    response = client.post("/api/v1/plot/polar", json=payload)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content[:4] == b"\x89PNG"
+

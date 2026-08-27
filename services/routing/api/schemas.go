@@ -5,18 +5,20 @@ import (
 
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/landmask"
+	"github.com/jaclar/routing-service/polar"
 	"github.com/jaclar/routing-service/weather"
 )
 
 type RouteRequest struct {
-	Start              geo.Point   `json:"start"`
-	Dest               geo.Point   `json:"dest"`
-	StartTime          *time.Time  `json:"start_time,omitempty"`
-	BoatPreset         string      `json:"boat_preset,omitempty"`
-	TimeStepHours      float64     `json:"time_step_hours,omitempty"`
-	TackPenaltyMinutes *float64    `json:"tack_penalty_minutes,omitempty"`
-	GybePenaltyMinutes *float64    `json:"gybe_penalty_minutes,omitempty"`
-	CustomBoat         interface{} `json:"custom_boat,omitempty"`
+	Start              geo.Point         `json:"start"`
+	Dest               geo.Point         `json:"dest"`
+	StartTime          *time.Time        `json:"start_time,omitempty"`
+	BoatPreset         string            `json:"boat_preset,omitempty"`
+	TimeStepHours      float64           `json:"time_step_hours,omitempty"`
+	TackPenaltyMinutes *float64          `json:"tack_penalty_minutes,omitempty"`
+	GybePenaltyMinutes *float64          `json:"gybe_penalty_minutes,omitempty"`
+	CustomBoat         interface{}       `json:"custom_boat,omitempty"`
+	CustomPolar        *polar.PolarTable `json:"custom_polar,omitempty"`
 }
 
 type WeatherGridRequest struct {

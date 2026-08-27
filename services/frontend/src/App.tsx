@@ -146,6 +146,14 @@ export const App: React.FC = () => {
         tackPenaltyMinutes,
         gybePenaltyMinutes,
         customBoat: selectedBoat?.customBoat,
+        customPolar: selectedBoat?.polarData
+          ? {
+              boat_name: selectedBoat.name,
+              tws_list: selectedBoat.polarData.tws_list,
+              twa_list: selectedBoat.polarData.twa_list,
+              speed_matrix: selectedBoat.polarData.speed_matrix,
+            }
+          : undefined,
       });
       setRouteResult(result);
       setCurrentWaypointIndex(0);

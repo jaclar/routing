@@ -60,9 +60,15 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 		preset = "36ft-ketch"
 	}
 
-	polarTable, err := s.vppClient.FetchPolar(preset, req.CustomBoat)
-	if err != nil {
-		polarTable = polar.Get36ftKetchPolar()
+	var polarTable *polar.PolarTable
+	if req.CustomPolar != nil && len(req.CustomPolar.TWSList) > 0 && len(req.CustomPolar.TWAList) > 0 && len(req.CustomPolar.Speeds) > 0 {
+		polarTable = req.CustomPolar
+	} else {
+		var err error
+		polarTable, err = s.vppClient.FetchPolar(preset, req.CustomBoat)
+		if err != nil || polarTable == nil {
+			polarTable = polar.Get36ftKetchPolar()
+		}
 	}
 
 	cfg := isochrone.DefaultRouterConfig()

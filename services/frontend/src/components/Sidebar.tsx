@@ -134,8 +134,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <label>Select Yacht Model</label>
               {currentBoat?.isCustom && (
-                <span className="custom-boat-badge" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
-                  Custom VPP
+                <span
+                  className="custom-boat-badge"
+                  style={{
+                    fontSize: '0.65rem',
+                    padding: '1px 5px',
+                    ...(currentBoat?.isPolFileOnly
+                      ? {
+                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                          borderColor: 'rgba(168, 85, 247, 0.35)',
+                          color: '#c084fc',
+                        }
+                      : {}),
+                  }}
+                >
+                  {currentBoat?.isPolFileOnly ? 'POL File' : 'Custom VPP'}
                 </span>
               )}
             </div>
@@ -159,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     .filter((p) => p.isCustom)
                     .map((p) => (
                       <option key={p.id} value={p.id}>
-                        🛠️ {p.name} ({p.rig_type.toUpperCase()})
+                        {p.isPolFileOnly ? '📁' : '🛠️'} {p.name} ({p.isPolFileOnly ? 'POL' : p.rig_type.toUpperCase()})
                       </option>
                     ))}
                 </optgroup>

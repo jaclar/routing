@@ -2,11 +2,12 @@
 
 import io
 from typing import List, Optional
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 
 from vpp.solver.vpp_solver import VPPSolver
-from vpp.polars.polar_data import generate_polar_table
+from vpp.polars.polar_data import PolarTable, compute_vmg_targets, generate_polar_table
 from vpp.polars.exporter import export_to_orc_pol, export_to_csv
 from vpp.polars.plotter import (
     plot_polar_diagram,
@@ -94,16 +95,40 @@ def solve_point(req: SolvePointRequest):
     )
 
 
+def get_or_generate_polar_table(req: SolveMatrixRequest) -> PolarTable:
+    """Retrieve polar table from precomputed matrix (e.g. uploaded .pol) or solve via 3-DOF VPP."""
+    if req.speed_matrix is not None and req.tws_list and req.twa_list:
+        speed_table = np.array(req.speed_matrix, dtype=float)
+        upwind_targets = {}
+        downwind_targets = {}
+        for i, tws in enumerate(req.tws_list):
+            speeds = speed_table[i, :].tolist()
+            up, dn = compute_vmg_targets(float(tws), [float(a) for a in req.twa_list], speeds)
+            upwind_targets[float(tws)] = up
+            downwind_targets[float(tws)] = dn
+        name = req.boat_name or (req.boat.name if req.boat else (req.preset_name or "Custom POL Yacht"))
+        return PolarTable(
+            boat_name=name,
+            tws_list=[float(x) for x in req.tws_list],
+            twa_list=[float(x) for x in req.twa_list],
+            matrix={},
+            speed_table=speed_table,
+            upwind_targets=upwind_targets,
+            downwind_targets=downwind_targets,
+        )
+
+    boat = resolve_boat(req.boat, req.preset_name)
+    solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)
+    return generate_polar_table(solver, tws_list=req.tws_list, twa_list=req.twa_list)
+
+
 @router.post("/solve/matrix", response_model=SolveMatrixResponse)
 def solve_matrix(req: SolveMatrixRequest):
-    """Compute full polar matrix and optimal upwind/downwind VMG targets."""
+    """Compute or format full polar matrix and optimal upwind/downwind VMG targets."""
     try:
-        boat = resolve_boat(req.boat, req.preset_name)
+        polars = get_or_generate_polar_table(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)
-    polars = generate_polar_table(solver, tws_list=req.tws_list, twa_list=req.twa_list)
 
     upwind_targets = {
         str(tws): VMGTargetResponse(
@@ -141,15 +166,11 @@ def solve_matrix(req: SolveMatrixRequest):
 def export_orc(req: SolveMatrixRequest):
     """Generate standard ORC / OpenCPN / Expedition .pol polar file."""
     try:
-        boat = resolve_boat(req.boat, req.preset_name)
+        polars = get_or_generate_polar_table(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)
-    polars = generate_polar_table(solver, tws_list=req.tws_list, twa_list=req.twa_list)
-
     buf = io.StringIO()
-    # Write ORC format to in-memory string
     header = ["twa/tws"] + [f"{tws:.1f}" for tws in polars.tws_list]
     lines = ["\t".join(header)]
 
@@ -163,36 +184,37 @@ def export_orc(req: SolveMatrixRequest):
     return PlainTextResponse(
         content=pol_text,
         media_type="text/plain",
-        headers={"Content-Disposition": f"attachment; filename={boat.name.replace(' ', '_')}.pol"},
+        headers={"Content-Disposition": f"attachment; filename={polars.boat_name.replace(' ', '_')}.pol"},
     )
 
 
 @router.post("/export/csv", response_class=PlainTextResponse)
 def export_csv_data(req: SolveMatrixRequest):
-    """Export complete point-by-point polar results to CSV."""
+    """Export polar results to CSV."""
     try:
-        boat = resolve_boat(req.boat, req.preset_name)
+        polars = get_or_generate_polar_table(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)
-    polars = generate_polar_table(solver, tws_list=req.tws_list, twa_list=req.twa_list)
 
     import csv
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["tws_kts", "twa_deg", "v_boat_kts", "vmg_kts", "heel_deg", "leeway_deg", "sail_set_name", "flat", "reef"])
 
-    for tws in polars.tws_list:
-        for twa in polars.twa_list:
+    for i, tws in enumerate(polars.tws_list):
+        for j, twa in enumerate(polars.twa_list):
             res = polars.get_point(tws, twa)
             if res is not None:
                 writer.writerow([res.tws_kts, res.twa_deg, f"{res.v_boat_kts:.3f}", f"{res.vmg_kts:.3f}", f"{res.heel_deg:.2f}", f"{res.leeway_deg:.2f}", res.sail_set_name, f"{res.flat:.2f}", f"{res.reef:.2f}"])
+            else:
+                spd = polars.speed_table[i, j]
+                vmg = spd * np.cos(np.deg2rad(twa))
+                writer.writerow([tws, twa, f"{spd:.3f}", f"{vmg:.3f}", "0.00", "0.00", "Main+Jib", "1.00", "1.00"])
 
     return PlainTextResponse(
         content=buf.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={boat.name.replace(' ', '_')}.csv"},
+        headers={"Content-Disposition": f"attachment; filename={polars.boat_name.replace(' ', '_')}.csv"},
     )
 
 
@@ -200,12 +222,9 @@ def export_csv_data(req: SolveMatrixRequest):
 def plot_polar_image(req: SolveMatrixRequest):
     """Generate and return polar performance diagram as PNG image stream."""
     try:
-        boat = resolve_boat(req.boat, req.preset_name)
+        polars = get_or_generate_polar_table(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)
-    polars = generate_polar_table(solver, tws_list=req.tws_list, twa_list=req.twa_list)
 
     fig = plot_polar_diagram(polars, show=False)
     buf = io.BytesIO()
@@ -221,12 +240,9 @@ def plot_polar_image(req: SolveMatrixRequest):
 def plot_curves_image(req: SolveMatrixRequest):
     """Generate and return Cartesian performance curves as PNG image stream."""
     try:
-        boat = resolve_boat(req.boat, req.preset_name)
+        polars = get_or_generate_polar_table(req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-    solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)
-    polars = generate_polar_table(solver, tws_list=req.tws_list, twa_list=req.twa_list)
 
     fig = plot_performance_curves(polars, show=False)
     buf = io.BytesIO()

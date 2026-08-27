@@ -132,8 +132,12 @@ export async function fetchBoatDetail(presetId: string, customBoats?: BoatPreset
 }
 
 export async function fetchPolarMatrix(
-  presetIdOrBoat: string | BoatDetail
+  presetIdOrBoat: string | BoatDetail | SolveMatrixResponse
 ): Promise<SolveMatrixResponse> {
+  if (typeof presetIdOrBoat === 'object' && 'speed_matrix' in presetIdOrBoat) {
+    return presetIdOrBoat;
+  }
+
   const payload =
     typeof presetIdOrBoat === 'string'
       ? { preset_name: presetIdOrBoat }
@@ -153,7 +157,7 @@ export async function fetchPolarMatrix(
 
 export async function fetchPlotImageBlob(
   plotType: 'polar' | 'curves' | 'resistance',
-  presetIdOrBoat: string | BoatDetail,
+  presetIdOrBoat: string | BoatDetail | SolveMatrixResponse,
   heelDeg: number = 15
 ): Promise<string> {
   const url =
@@ -161,10 +165,19 @@ export async function fetchPlotImageBlob(
       ? `/api/v1/plot/resistance?heel_deg=${heelDeg}`
       : `/api/v1/plot/${plotType}`;
 
-  const payload =
-    typeof presetIdOrBoat === 'string'
-      ? { preset_name: presetIdOrBoat }
-      : { boat: presetIdOrBoat };
+  let payload: any;
+  if (typeof presetIdOrBoat === 'string') {
+    payload = { preset_name: presetIdOrBoat };
+  } else if ('speed_matrix' in presetIdOrBoat) {
+    payload = {
+      boat_name: presetIdOrBoat.boat_name,
+      tws_list: presetIdOrBoat.tws_list,
+      twa_list: presetIdOrBoat.twa_list,
+      speed_matrix: presetIdOrBoat.speed_matrix,
+    };
+  } else {
+    payload = { boat: presetIdOrBoat };
+  }
 
   const res = await fetch(url, {
     method: 'POST',
@@ -181,12 +194,21 @@ export async function fetchPlotImageBlob(
 }
 
 export async function exportORCPolFile(
-  presetIdOrBoat: string | BoatDetail
+  presetIdOrBoat: string | BoatDetail | SolveMatrixResponse
 ): Promise<string> {
-  const payload =
-    typeof presetIdOrBoat === 'string'
-      ? { preset_name: presetIdOrBoat }
-      : { boat: presetIdOrBoat };
+  let payload: any;
+  if (typeof presetIdOrBoat === 'string') {
+    payload = { preset_name: presetIdOrBoat };
+  } else if ('speed_matrix' in presetIdOrBoat) {
+    payload = {
+      boat_name: presetIdOrBoat.boat_name,
+      tws_list: presetIdOrBoat.tws_list,
+      twa_list: presetIdOrBoat.twa_list,
+      speed_matrix: presetIdOrBoat.speed_matrix,
+    };
+  } else {
+    payload = { boat: presetIdOrBoat };
+  }
 
   const res = await fetch('/api/v1/export/orc', {
     method: 'POST',
@@ -200,12 +222,21 @@ export async function exportORCPolFile(
 }
 
 export async function exportCSVPolFile(
-  presetIdOrBoat: string | BoatDetail
+  presetIdOrBoat: string | BoatDetail | SolveMatrixResponse
 ): Promise<string> {
-  const payload =
-    typeof presetIdOrBoat === 'string'
-      ? { preset_name: presetIdOrBoat }
-      : { boat: presetIdOrBoat };
+  let payload: any;
+  if (typeof presetIdOrBoat === 'string') {
+    payload = { preset_name: presetIdOrBoat };
+  } else if ('speed_matrix' in presetIdOrBoat) {
+    payload = {
+      boat_name: presetIdOrBoat.boat_name,
+      tws_list: presetIdOrBoat.tws_list,
+      twa_list: presetIdOrBoat.twa_list,
+      speed_matrix: presetIdOrBoat.speed_matrix,
+    };
+  } else {
+    payload = { boat: presetIdOrBoat };
+  }
 
   const res = await fetch('/api/v1/export/csv', {
     method: 'POST',
@@ -227,6 +258,12 @@ export async function calculateRoute(params: {
   tackPenaltyMinutes?: number;
   gybePenaltyMinutes?: number;
   customBoat?: BoatDetail;
+  customPolar?: {
+    boat_name: string;
+    tws_list: number[];
+    twa_list: number[];
+    speed_matrix: number[][];
+  };
 }): Promise<RouteResult> {
   const res = await fetch('/api/v1/route', {
     method: 'POST',
@@ -240,6 +277,7 @@ export async function calculateRoute(params: {
       tack_penalty_minutes: params.tackPenaltyMinutes,
       gybe_penalty_minutes: params.gybePenaltyMinutes,
       custom_boat: params.customBoat,
+      custom_polar: params.customPolar,
     }),
   });
 
@@ -249,6 +287,162 @@ export async function calculateRoute(params: {
   }
 
   return await res.json();
+}
+
+export function parsePolFile(content: string, filename: string = 'custom_polar.pol'): SolveMatrixResponse {
+  const lines = content
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('#') && !l.startsWith('!') && !l.startsWith('//') && !l.startsWith(';'));
+
+  if (lines.length < 2) {
+    throw new Error('Invalid .pol file: File must contain at least a header line and one data row.');
+  }
+
+  // Detect delimiter: tab, semicolon, comma, or whitespace
+  const firstLine = lines[0];
+  let delimiter: RegExp | string = /\s+/;
+  if (firstLine.includes('\t')) {
+    delimiter = '\t';
+  } else if (firstLine.includes(';')) {
+    delimiter = ';';
+  } else if (firstLine.includes(',')) {
+    delimiter = ',';
+  }
+
+  // Header tokens
+  const rawHeaderTokens = firstLine.split(delimiter).map((t) => t.trim()).filter(Boolean);
+  const sampleDataTokens = lines[1].split(delimiter).map((t) => t.trim()).filter(Boolean);
+
+  let twsTokens: string[];
+  if (sampleDataTokens.length > 0 && rawHeaderTokens.length === sampleDataTokens.length - 1) {
+    // Header only contains wind speeds without a column 0 label
+    twsTokens = rawHeaderTokens;
+  } else {
+    // Standard format: token 0 is "twa/tws", "twa", "deg", etc.
+    twsTokens = rawHeaderTokens.slice(1);
+  }
+
+  if (twsTokens.length === 0) {
+    throw new Error('Invalid .pol header: could not parse wind speeds.');
+  }
+
+  const twsList: number[] = [];
+  for (const tok of twsTokens) {
+    const val = parseFloat(tok.replace(/[^0-9.]/g, ''));
+    if (isNaN(val)) {
+      throw new Error(`Invalid TWS value in header: "${tok}"`);
+    }
+    twsList.push(val);
+  }
+
+  // Parse TWA rows and speed columns
+  const twaList: number[] = [];
+  const rows: number[][] = []; // [twaIdx][twsIdx]
+
+  for (let r = 1; r < lines.length; r++) {
+    const rowTokens = lines[r].split(delimiter).map((t) => t.trim()).filter(Boolean);
+    if (rowTokens.length < 2) continue;
+
+    const twa = parseFloat(rowTokens[0].replace(/[^0-9.]/g, ''));
+    if (isNaN(twa)) continue;
+
+    const speedsForRow: number[] = [];
+    for (let c = 0; c < twsList.length; c++) {
+      const spdToken = rowTokens[c + 1];
+      const spd = spdToken !== undefined ? parseFloat(spdToken.replace(/[^0-9.]/g, '')) : 0.0;
+      speedsForRow.push(isNaN(spd) ? 0.0 : spd);
+    }
+
+    twaList.push(twa);
+    rows.push(speedsForRow);
+  }
+
+  if (twaList.length === 0) {
+    throw new Error('Invalid .pol file: no valid TWA rows found.');
+  }
+
+  // Transpose to [len(TWS)][len(TWA)] as required by SolveMatrixResponse
+  const speedMatrix: number[][] = [];
+  for (let i = 0; i < twsList.length; i++) {
+    const rowForTws: number[] = [];
+    for (let j = 0; j < twaList.length; j++) {
+      rowForTws.push(rows[j][i] || 0.0);
+    }
+    speedMatrix.push(rowForTws);
+  }
+
+  // Calculate VMG targets (Upwind & Downwind)
+  const upwindTargets: Record<string, any> = {};
+  const downwindTargets: Record<string, any> = {};
+
+  for (let i = 0; i < twsList.length; i++) {
+    const tws = twsList[i];
+    let bestUpVMG = -Infinity;
+    let bestUpTWA = 40.0;
+    let bestUpSpd = 0.0;
+
+    let bestDownVMG = -Infinity;
+    let bestDownTWA = 140.0;
+    let bestDownSpd = 0.0;
+
+    for (let j = 0; j < twaList.length; j++) {
+      const twa = twaList[j];
+      const spd = speedMatrix[i][j];
+      const rad = (twa * Math.PI) / 180.0;
+      const vmg = spd * Math.cos(rad);
+
+      // Upwind search: TWA 28° to 75°
+      if (twa >= 28 && twa <= 75) {
+        if (vmg > bestUpVMG && spd > 0.05) {
+          bestUpVMG = vmg;
+          bestUpTWA = twa;
+          bestUpSpd = spd;
+        }
+      }
+
+      // Downwind search: TWA 110° to 180°
+      if (twa >= 110 && twa <= 180) {
+        const downVmg = spd * -Math.cos(rad);
+        if (downVmg > bestDownVMG && spd > 0.05) {
+          bestDownVMG = downVmg;
+          bestDownTWA = twa;
+          bestDownSpd = spd;
+        }
+      }
+    }
+
+    const key = tws.toFixed(1);
+    upwindTargets[key] = {
+      tws_kts: tws,
+      target_twa_deg: bestUpTWA,
+      target_v_boat_kts: bestUpSpd,
+      target_vmg_kts: Math.max(0, bestUpVMG),
+      is_upwind: true,
+    };
+    downwindTargets[key] = {
+      tws_kts: tws,
+      target_twa_deg: bestDownTWA,
+      target_v_boat_kts: bestDownSpd,
+      target_vmg_kts: Math.max(0, bestDownVMG),
+      is_upwind: false,
+    };
+  }
+
+  // Derive friendly boat name from filename
+  const cleanName = filename
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+
+  return {
+    boat_name: cleanName || 'Custom POL Yacht',
+    tws_list: twsList,
+    twa_list: twaList,
+    speed_matrix: speedMatrix,
+    upwind_vmg_targets: upwindTargets,
+    downwind_vmg_targets: downwindTargets,
+  };
 }
 
 // LocalStorage & JSON file persistence helpers
