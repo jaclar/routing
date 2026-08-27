@@ -11,6 +11,17 @@ export interface BoatPreset {
   draft_m: number;
   displacement_kg: number;
   rig_type: string;
+  isCustom?: boolean;
+  customBoat?: BoatDetail;
+  polarData?: SolveMatrixResponse;
+}
+
+export interface CustomBoatFile {
+  version: string;
+  format: 'sailboat-vpp-polar';
+  created_at: string;
+  boat: BoatDetail;
+  polars?: SolveMatrixResponse;
 }
 
 export interface HullDetail {

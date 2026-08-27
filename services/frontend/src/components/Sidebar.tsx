@@ -131,17 +131,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="input-group">
-            <label>Select Yacht Preset</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label>Select Yacht Model</label>
+              {currentBoat?.isCustom && (
+                <span className="custom-boat-badge" style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                  Custom VPP
+                </span>
+              )}
+            </div>
             <select
               className="select-field"
               value={selectedPresetId}
               onChange={(e) => onSelectPreset(e.target.value)}
             >
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.rig_type.toUpperCase()})
-                </option>
-              ))}
+              <optgroup label="Built-in Standard Presets">
+                {presets
+                  .filter((p) => !p.isCustom)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.rig_type.toUpperCase()})
+                    </option>
+                  ))}
+              </optgroup>
+              {presets.some((p) => p.isCustom) && (
+                <optgroup label="Custom User Yachts">
+                  {presets
+                    .filter((p) => p.isCustom)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        🛠️ {p.name} ({p.rig_type.toUpperCase()})
+                      </option>
+                    ))}
+                </optgroup>
+              )}
             </select>
           </div>
 
@@ -150,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div>LOA: <b style={{ color: '#f8fafc' }}>{currentBoat.loa_m}m</b></div>
               <div>Beam: <b style={{ color: '#f8fafc' }}>{currentBoat.beam_m}m</b></div>
               <div>Draft: <b style={{ color: '#f8fafc' }}>{currentBoat.draft_m}m</b></div>
-              <div>Disp: <b style={{ color: '#f8fafc' }}>{currentBoat.displacement_kg}kg</b></div>
+              <div>Disp: <b style={{ color: '#f8fafc' }}>{currentBoat.displacement_kg.toLocaleString()}kg</b></div>
             </div>
           )}
         </div>

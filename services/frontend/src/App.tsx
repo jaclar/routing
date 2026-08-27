@@ -7,7 +7,18 @@ import { WaypointControls } from './components/WaypointControls';
 import { VPPInspector } from './components/VPPInspector';
 import { PassageStatistics } from './components/PassageStatistics';
 import { BoatPreset, LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from './types';
-import { fetchPresets, calculateRoute, fetchWeatherGrid, fetchLandmaskPolygons, ROUTE_PRESETS, calcDirectDistanceNM, getSaneDefaultTimeStepHours } from './services/api';
+import {
+  fetchPresets,
+  calculateRoute,
+  fetchWeatherGrid,
+  fetchLandmaskPolygons,
+  ROUTE_PRESETS,
+  calcDirectDistanceNM,
+  getSaneDefaultTimeStepHours,
+  loadCustomBoatsFromStorage,
+  saveCustomBoatToStorage,
+  deleteCustomBoatFromStorage,
+} from './services/api';
 import { Map as MapIcon, Gauge, BarChart3 } from 'lucide-react';
 import './styles/App.css';
 
@@ -42,12 +53,14 @@ export const App: React.FC = () => {
   // Weather grid cache by timestamp
   const weatherCacheRef = useRef<Map<string, WeatherGridResponse>>(new Map());
 
-  // 1. Initial presets load
+  // 1. Initial presets load + merge stored custom boats
   useEffect(() => {
-    fetchPresets().then((data) => {
-      setPresets(data);
-      if (data.length > 0) {
-        setSelectedPresetId(data[0].id);
+    fetchPresets().then((builtin) => {
+      const savedCustom = loadCustomBoatsFromStorage();
+      const merged = [...builtin, ...savedCustom];
+      setPresets(merged);
+      if (merged.length > 0) {
+        setSelectedPresetId((prev) => (merged.some((p) => p.id === prev) ? prev : merged[0].id));
       }
     });
   }, []);
@@ -123,6 +136,7 @@ export const App: React.FC = () => {
     // Clear weather cache when calculating a new route
     weatherCacheRef.current.clear();
     try {
+      const selectedBoat = presets.find((p) => p.id === selectedPresetId);
       const result = await calculateRoute({
         start: startPoint,
         dest: destPoint,
@@ -131,6 +145,7 @@ export const App: React.FC = () => {
         timeStepHours,
         tackPenaltyMinutes,
         gybePenaltyMinutes,
+        customBoat: selectedBoat?.customBoat,
       });
       setRouteResult(result);
       setCurrentWaypointIndex(0);
@@ -141,6 +156,21 @@ export const App: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const handleAddCustomBoat = useCallback((newPreset: BoatPreset) => {
+    saveCustomBoatToStorage(newPreset);
+    setPresets((prev) => {
+      const filtered = prev.filter((p) => p.id !== newPreset.id);
+      return [...filtered, newPreset];
+    });
+    setSelectedPresetId(newPreset.id);
+  }, []);
+
+  const handleDeleteCustomBoat = useCallback((presetId: string) => {
+    deleteCustomBoatFromStorage(presetId);
+    setPresets((prev) => prev.filter((p) => p.id !== presetId));
+    setSelectedPresetId('36ft-ketch');
+  }, []);
 
   const handleStartPointChange = useCallback((newStart: Point) => {
     setStartPoint(newStart);
@@ -264,6 +294,8 @@ export const App: React.FC = () => {
             presets={presets}
             selectedPresetId={selectedPresetId}
             onSelectPreset={setSelectedPresetId}
+            onAddCustomBoat={handleAddCustomBoat}
+            onDeleteCustomBoat={handleDeleteCustomBoat}
           />
         )}
       </div>

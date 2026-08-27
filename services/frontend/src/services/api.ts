@@ -1,4 +1,4 @@
-import { BoatDetail, BoatPreset, LandmaskPolygon, LandmaskResponse, Point, RouteResult, SolveMatrixResponse, WeatherGridResponse } from '../types';
+import { BoatDetail, BoatPreset, CustomBoatFile, LandmaskPolygon, LandmaskResponse, Point, RouteResult, SolveMatrixResponse, WeatherGridResponse } from '../types';
 
 export const ROUTE_PRESETS = [
   {
@@ -116,7 +116,14 @@ export async function fetchPresets(): Promise<BoatPreset[]> {
   }
 }
 
-export async function fetchBoatDetail(presetId: string): Promise<BoatDetail> {
+export async function fetchBoatDetail(presetId: string, customBoats?: BoatPreset[]): Promise<BoatDetail> {
+  if (customBoats) {
+    const custom = customBoats.find((b) => b.id === presetId);
+    if (custom && custom.customBoat) {
+      return custom.customBoat;
+    }
+  }
+
   const res = await fetch(`/api/v1/presets/${encodeURIComponent(presetId)}`);
   if (!res.ok) {
     throw new Error(`Failed to load specifications for yacht preset '${presetId}'`);
@@ -124,21 +131,29 @@ export async function fetchBoatDetail(presetId: string): Promise<BoatDetail> {
   return await res.json();
 }
 
-export async function fetchPolarMatrix(presetId: string): Promise<SolveMatrixResponse> {
+export async function fetchPolarMatrix(
+  presetIdOrBoat: string | BoatDetail
+): Promise<SolveMatrixResponse> {
+  const payload =
+    typeof presetIdOrBoat === 'string'
+      ? { preset_name: presetIdOrBoat }
+      : { boat: presetIdOrBoat };
+
   const res = await fetch('/api/v1/solve/matrix', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ preset_name: presetId }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(`Failed to compute polar matrix for yacht '${presetId}'`);
+    const errText = await res.text();
+    throw new Error(`Failed to compute polar matrix: ${errText}`);
   }
   return await res.json();
 }
 
 export async function fetchPlotImageBlob(
   plotType: 'polar' | 'curves' | 'resistance',
-  presetId: string,
+  presetIdOrBoat: string | BoatDetail,
   heelDeg: number = 15
 ): Promise<string> {
   const url =
@@ -146,10 +161,15 @@ export async function fetchPlotImageBlob(
       ? `/api/v1/plot/resistance?heel_deg=${heelDeg}`
       : `/api/v1/plot/${plotType}`;
 
+  const payload =
+    typeof presetIdOrBoat === 'string'
+      ? { preset_name: presetIdOrBoat }
+      : { boat: presetIdOrBoat };
+
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ preset_name: presetId }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -160,11 +180,18 @@ export async function fetchPlotImageBlob(
   return URL.createObjectURL(blob);
 }
 
-export async function exportORCPolFile(presetId: string): Promise<string> {
+export async function exportORCPolFile(
+  presetIdOrBoat: string | BoatDetail
+): Promise<string> {
+  const payload =
+    typeof presetIdOrBoat === 'string'
+      ? { preset_name: presetIdOrBoat }
+      : { boat: presetIdOrBoat };
+
   const res = await fetch('/api/v1/export/orc', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ preset_name: presetId }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error('Failed to generate ORC .pol export');
@@ -172,11 +199,18 @@ export async function exportORCPolFile(presetId: string): Promise<string> {
   return await res.text();
 }
 
-export async function exportCSVPolFile(presetId: string): Promise<string> {
+export async function exportCSVPolFile(
+  presetIdOrBoat: string | BoatDetail
+): Promise<string> {
+  const payload =
+    typeof presetIdOrBoat === 'string'
+      ? { preset_name: presetIdOrBoat }
+      : { boat: presetIdOrBoat };
+
   const res = await fetch('/api/v1/export/csv', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ preset_name: presetId }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error('Failed to generate CSV polar export');
@@ -192,6 +226,7 @@ export async function calculateRoute(params: {
   timeStepHours?: number;
   tackPenaltyMinutes?: number;
   gybePenaltyMinutes?: number;
+  customBoat?: BoatDetail;
 }): Promise<RouteResult> {
   const res = await fetch('/api/v1/route', {
     method: 'POST',
@@ -204,6 +239,7 @@ export async function calculateRoute(params: {
       time_step_hours: params.timeStepHours || 2.0,
       tack_penalty_minutes: params.tackPenaltyMinutes,
       gybe_penalty_minutes: params.gybePenaltyMinutes,
+      custom_boat: params.customBoat,
     }),
   });
 
@@ -213,6 +249,135 @@ export async function calculateRoute(params: {
   }
 
   return await res.json();
+}
+
+// LocalStorage & JSON file persistence helpers
+const CUSTOM_BOATS_STORAGE_KEY = 'sailboat_custom_boats_v1';
+
+export function loadCustomBoatsFromStorage(): BoatPreset[] {
+  try {
+    const data = localStorage.getItem(CUSTOM_BOATS_STORAGE_KEY);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Failed to load custom boats from localStorage:', err);
+    return [];
+  }
+}
+
+export function saveCustomBoatToStorage(boatPreset: BoatPreset): void {
+  try {
+    const existing = loadCustomBoatsFromStorage();
+    const filtered = existing.filter((b) => b.id !== boatPreset.id);
+    filtered.push(boatPreset);
+    localStorage.setItem(CUSTOM_BOATS_STORAGE_KEY, JSON.stringify(filtered));
+  } catch (err) {
+    console.error('Failed to save custom boat to localStorage:', err);
+  }
+}
+
+export function deleteCustomBoatFromStorage(id: string): void {
+  try {
+    const existing = loadCustomBoatsFromStorage();
+    const filtered = existing.filter((b) => b.id !== id);
+    localStorage.setItem(CUSTOM_BOATS_STORAGE_KEY, JSON.stringify(filtered));
+  } catch (err) {
+    console.error('Failed to delete custom boat from localStorage:', err);
+  }
+}
+
+export function exportCustomBoatJSON(boat: BoatDetail, polars?: SolveMatrixResponse): void {
+  const fileData: CustomBoatFile = {
+    version: '1.0',
+    format: 'sailboat-vpp-polar',
+    created_at: new Date().toISOString(),
+    boat,
+    polars,
+  };
+
+  const jsonStr = JSON.stringify(fileData, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  const safeName = (boat.name || 'custom_boat').replace(/[^a-zA-Z0-9_-]/g, '_');
+  link.download = `${safeName}_vpp_data.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function parseAndValidateBoatJSON(content: string): CustomBoatFile {
+  let data: any;
+  try {
+    data = JSON.parse(content);
+  } catch (e: any) {
+    throw new Error('Invalid JSON format: ' + e.message);
+  }
+
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid file content: expected a JSON object');
+  }
+
+  const boat = data.boat || data;
+  if (!boat.hull || !boat.rig || !boat.appendages || !boat.stability) {
+    throw new Error('Incomplete boat specification: missing hull, rig, appendages, or stability data');
+  }
+
+  if (typeof boat.hull.loa !== 'number' || typeof boat.hull.displacement_mass !== 'number') {
+    throw new Error('Invalid hull specifications: LOA and displacement mass must be numeric');
+  }
+
+  return {
+    version: data.version || '1.0',
+    format: 'sailboat-vpp-polar',
+    created_at: data.created_at || new Date().toISOString(),
+    boat: {
+      name: boat.name || 'Imported Custom Boat',
+      hull: {
+        loa: Number(boat.hull.loa),
+        lwl: Number(boat.hull.lwl || boat.hull.loa * 0.85),
+        b_max: Number(boat.hull.b_max),
+        b_wl: Number(boat.hull.b_wl || boat.hull.b_max * 0.88),
+        draft_canoe: Number(boat.hull.draft_canoe || boat.hull.draft_total * 0.35),
+        draft_total: Number(boat.hull.draft_total),
+        displacement_mass: Number(boat.hull.displacement_mass),
+        wetted_surface: boat.hull.wetted_surface ? Number(boat.hull.wetted_surface) : undefined,
+        prismatic_coef: Number(boat.hull.prismatic_coef || 0.56),
+        form_factor_k: Number(boat.hull.form_factor_k || 0.12),
+        lcb_fraction: Number(boat.hull.lcb_fraction || 0.52),
+      },
+      appendages: {
+        keel_type: String(boat.appendages.keel_type || 'fin'),
+        keel_area: Number(boat.appendages.keel_area || 1.8),
+        keel_span: Number(boat.appendages.keel_span || 1.4),
+        rudder_area: Number(boat.appendages.rudder_area || 0.8),
+        rudder_span: Number(boat.appendages.rudder_span || 1.1),
+        effective_draft: boat.appendages.effective_draft ? Number(boat.appendages.effective_draft) : undefined,
+        wetted_surface: boat.appendages.wetted_surface ? Number(boat.appendages.wetted_surface) : undefined,
+      },
+      rig: {
+        rig_type: String(boat.rig.rig_type || 'sloop'),
+        main_p: Number(boat.rig.main_p),
+        main_e: Number(boat.rig.main_e),
+        fore_i: Number(boat.rig.fore_i),
+        fore_j: Number(boat.rig.fore_j),
+        mast_height_above_water: Number(boat.rig.mast_height_above_water || boat.rig.fore_i * 1.15),
+        boom_height_above_water: Number(boat.rig.boom_height_above_water || 1.8),
+        mizzen_p: boat.rig.mizzen_p ? Number(boat.rig.mizzen_p) : undefined,
+        mizzen_e: boat.rig.mizzen_e ? Number(boat.rig.mizzen_e) : undefined,
+        mizzen_mast_height: boat.rig.mizzen_mast_height ? Number(boat.rig.mizzen_mast_height) : undefined,
+        mizzen_boom_height: boat.rig.mizzen_boom_height ? Number(boat.rig.mizzen_boom_height) : undefined,
+      },
+      stability: {
+        gmt: Number(boat.stability.gmt || 1.1),
+        crew_mass: Number(boat.stability.crew_mass || 350),
+        crew_hiking_distance: Number(boat.stability.crew_hiking_distance || 1.5),
+        crew_hiking_fraction: Number(boat.stability.crew_hiking_fraction || 0.8),
+      },
+    },
+    polars: data.polars,
+  };
 }
 
 export async function fetchWeatherGrid(params: {
