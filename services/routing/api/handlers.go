@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jaclar/routing-service/isochrone"
@@ -149,6 +150,40 @@ func (s *Server) HandleWeatherGrid(w http.ResponseWriter, r *http.Request) {
 		LatStep: req.LatStep,
 		LonStep: req.LonStep,
 		Grid:    grid,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) HandleLandmaskPolygons(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+	minLatStr := q.Get("min_lat")
+	maxLatStr := q.Get("max_lat")
+	minLonStr := q.Get("min_lon")
+	maxLonStr := q.Get("max_lon")
+
+	var polygons []landmask.Polygon
+	if minLatStr != "" && maxLatStr != "" && minLonStr != "" && maxLonStr != "" {
+		minLat, _ := strconv.ParseFloat(minLatStr, 64)
+		maxLat, _ := strconv.ParseFloat(maxLatStr, 64)
+		minLon, _ := strconv.ParseFloat(minLonStr, 64)
+		maxLon, _ := strconv.ParseFloat(maxLonStr, 64)
+		polygons = s.landMask.GetPolygonsInRegion(minLat, maxLat, minLon, maxLon)
+	} else {
+		// Default: Caribbean / West Indies passage region
+		polygons = s.landMask.GetPolygonsInRegion(9.5, 14.0, -63.0, -59.0)
+		if len(polygons) == 0 {
+			polygons = s.landMask.GetPolygonsInRegion(9.0, 45.0, -80.0, -50.0)
+		}
+	}
+
+	resp := LandmaskResponse{
+		Polygons: polygons,
 	}
 
 	writeJSON(w, http.StatusOK, resp)

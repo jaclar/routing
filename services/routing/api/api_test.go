@@ -38,7 +38,7 @@ func TestRouteEndpoint(t *testing.T) {
 	handler := server.SetupRouter()
 
 	routeReq := RouteRequest{
-		Start:         geo.Point{Lat: 41.45, Lon: -71.35}, // Newport
+		Start:         geo.Point{Lat: 41.40, Lon: -71.35}, // Newport Brenton Reef offshore
 		Dest:          geo.Point{Lat: 32.40, Lon: -64.55}, // Bermuda
 		BoatPreset:    "36ft-ketch",
 		TimeStepHours: 3.0,
@@ -67,5 +67,28 @@ func TestWeatherGridEndpoint(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", rec.Code)
+	}
+}
+
+func TestLandmaskPolygonsEndpoint(t *testing.T) {
+	server := NewServer("http://localhost:8000")
+	handler := server.SetupRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/landmask/polygons", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", rec.Code)
+	}
+
+	var resp LandmaskResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode landmask response: %v", err)
+	}
+
+	if len(resp.Polygons) == 0 {
+		t.Fatalf("Expected at least 1 land polygon, got 0")
 	}
 }

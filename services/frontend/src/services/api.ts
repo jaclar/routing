@@ -1,4 +1,4 @@
-import { BoatDetail, BoatPreset, Point, RouteResult, SolveMatrixResponse, WeatherGridResponse } from '../types';
+import { BoatDetail, BoatPreset, LandmaskPolygon, LandmaskResponse, Point, RouteResult, SolveMatrixResponse, WeatherGridResponse } from '../types';
 
 export const ROUTE_PRESETS = [
   {
@@ -213,4 +213,25 @@ export async function fetchWeatherGrid(params: {
   }
 
   return await res.json();
+}
+
+export async function fetchLandmaskPolygons(bounds?: {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}): Promise<LandmaskPolygon[]> {
+  try {
+    let url = '/api/v1/landmask/polygons';
+    if (bounds) {
+      url += `?min_lat=${bounds.minLat.toFixed(2)}&max_lat=${bounds.maxLat.toFixed(2)}&min_lon=${bounds.minLon.toFixed(2)}&max_lon=${bounds.maxLon.toFixed(2)}`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch landmask polygons');
+    const data: LandmaskResponse = await res.json();
+    return data.polygons || [];
+  } catch (err) {
+    console.warn('Failed to fetch landmask polygons:', err);
+    return [];
+  }
 }

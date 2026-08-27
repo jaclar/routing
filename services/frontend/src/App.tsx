@@ -4,8 +4,8 @@ import { MapView } from './components/MapView';
 import { TimelineScrubber } from './components/TimelineScrubber';
 import { LayerToggles } from './components/LayerToggles';
 import { VPPInspector } from './components/VPPInspector';
-import { BoatPreset, Point, RouteResult, WeatherGridResponse } from './types';
-import { fetchPresets, calculateRoute, fetchWeatherGrid, ROUTE_PRESETS } from './services/api';
+import { BoatPreset, LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from './types';
+import { fetchPresets, calculateRoute, fetchWeatherGrid, fetchLandmaskPolygons, ROUTE_PRESETS } from './services/api';
 import { Map as MapIcon, Gauge } from 'lucide-react';
 import './styles/App.css';
 
@@ -28,8 +28,10 @@ export const App: React.FC = () => {
   const [currentWaypointIndex, setCurrentWaypointIndex] = useState<number>(0);
 
   const [weatherGrid, setWeatherGrid] = useState<WeatherGridResponse | null>(null);
+  const [landmaskPolygons, setLandmaskPolygons] = useState<LandmaskPolygon[]>([]);
   const [showIsochrones, setShowIsochrones] = useState<boolean>(true);
   const [showWindGrid, setShowWindGrid] = useState<boolean>(true);
+  const [showLandmask, setShowLandmask] = useState<boolean>(true);
 
   // Weather grid cache by timestamp
   const weatherCacheRef = useRef<Map<string, WeatherGridResponse>>(new Map());
@@ -43,6 +45,19 @@ export const App: React.FC = () => {
       }
     });
   }, []);
+
+  // 1b. Load landmask polygons dynamically for the active passage region
+  useEffect(() => {
+    if (!showLandmask) return;
+    const minLat = Math.min(startPoint.lat, destPoint.lat) - 3.0;
+    const maxLat = Math.max(startPoint.lat, destPoint.lat) + 3.0;
+    const minLon = Math.min(startPoint.lon, destPoint.lon) - 3.0;
+    const maxLon = Math.max(startPoint.lon, destPoint.lon) + 3.0;
+
+    fetchLandmaskPolygons({ minLat, maxLat, minLon, maxLon }).then((polys) => {
+      setLandmaskPolygons(polys);
+    });
+  }, [startPoint, destPoint, showLandmask]);
 
   // Determine active forecast timestamp
   const activeTime =
@@ -180,8 +195,10 @@ export const App: React.FC = () => {
               routeResult={routeResult}
               currentWaypointIndex={currentWaypointIndex}
               weatherGrid={weatherGrid}
+              landmaskPolygons={landmaskPolygons}
               showIsochrones={showIsochrones}
               showWindGrid={showWindGrid}
+              showLandmask={showLandmask}
             />
 
             <LayerToggles
@@ -189,6 +206,8 @@ export const App: React.FC = () => {
               onToggleIsochrones={() => setShowIsochrones(!showIsochrones)}
               showWindGrid={showWindGrid}
               onToggleWindGrid={() => setShowWindGrid(!showWindGrid)}
+              showLandmask={showLandmask}
+              onToggleLandmask={() => setShowLandmask(!showLandmask)}
               activeTime={activeTime}
             />
 

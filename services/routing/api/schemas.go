@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jaclar/routing-service/geo"
+	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/weather"
 )
 
@@ -43,4 +44,8 @@ type HealthResponse struct {
 	Status  string `json:"status"`
 	Service string `json:"service"`
 	Version string `json:"version"`
+}
+
+type LandmaskResponse struct {
+	Polygons []landmask.Polygon `json:"polygons"`
 }

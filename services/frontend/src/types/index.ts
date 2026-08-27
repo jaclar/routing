@@ -149,3 +149,16 @@ export interface RoutePreset {
   destName: string;
   dest: Point;
 }
+
+export interface LandmaskPolygon {
+  name: string;
+  min_lat: number;
+  max_lat: number;
+  min_lon: number;
+  max_lon: number;
+  vertices: Point[];
+}
+
+export interface LandmaskResponse {
+  polygons: LandmaskPolygon[];
+}

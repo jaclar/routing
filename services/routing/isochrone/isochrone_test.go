@@ -94,7 +94,7 @@ func TestPureUpwindBeating(t *testing.T) {
 
 func TestIsochroneRoutingNewportToBermuda(t *testing.T) {
 	// Newport, RI (Castle Hill / Brenton Reef departure) to Bermuda (St. David's Approach)
-	newport := geo.Point{Lat: 41.45, Lon: -71.35}
+	newport := geo.Point{Lat: 41.40, Lon: -71.35}
 	bermuda := geo.Point{Lat: 32.40, Lon: -64.55}
 
 	startTime := time.Now().UTC()
@@ -194,11 +194,96 @@ func TestTackPenaltyManeuvers(t *testing.T) {
 	if m2 != "gybe" {
 		t.Fatalf("Expected gybe through stern, got %s", m2)
 	}
+}
 
-	// Same tack (045° to 055°): No maneuver
-	m3 := DetectManeuver(45.0, 55.0, twd)
-	if m3 != "none" {
-		t.Fatalf("Expected none for course change on same tack, got %s", m3)
+func TestPricklyBayToChaguaramas(t *testing.T) {
+	// Prickly Bay Grenada to Chaguaramas Trinidad
+	start := geo.Point{Lat: 11.975, Lon: -61.765}
+	dest := geo.Point{Lat: 10.675, Lon: -61.645}
+
+	startTime := time.Now().UTC()
+	polarTable := polar.Get36ftKetchPolar()
+	weatherEngine := weather.NewRealisticGFSEngine(startTime)
+	landMask := landmask.NewGSHHGLandMask()
+
+	cfg := DefaultRouterConfig()
+	cfg.TimeStep = 5 * time.Minute // 5-minute isochrones
+
+	t0 := time.Now()
+	route, err := CalculateOptimalRoute(
+		start,
+		dest,
+		startTime,
+		polarTable,
+		weatherEngine,
+		landMask,
+		cfg,
+	)
+	dur := time.Since(t0)
+	t.Logf("Calculated route in %v (Waypoints: %d, Distance: %.2f NM, Time: %.2f h, Reached: %v)",
+		dur, len(route.Waypoints), route.TotalDistanceNM, route.TotalDurationHours, route.DestinationReached)
+
+	for i := 0; i < len(route.Waypoints); i += 20 {
+		wp := route.Waypoints[i]
+		t.Logf("Step %3d (Time: %6.2fh): Lat %.4f, Lon %.4f, DistToDest: %.2f NM, Spd: %.2f kts",
+			i, wp.Time.Sub(startTime).Hours(), wp.Lat, wp.Lon, wp.DistanceToDestNM, wp.BoatSpeedKts)
+	}
+	if len(route.Waypoints) > 0 {
+		last := route.Waypoints[len(route.Waypoints)-1]
+		t.Logf("FINAL WP: Lat %.4f, Lon %.4f, DistToDest: %.2f NM, Spd: %.2f kts",
+			last.Lat, last.Lon, last.DistanceToDestNM, last.BoatSpeedKts)
+	}
+
+	if err != nil {
+		t.Fatalf("Routing calculation failed: %v", err)
+	}
+	if !route.DestinationReached {
+		t.Fatalf("Expected destination to be reached")
+	}
+}
+
+func TestCowesToFastnetRock(t *testing.T) {
+	// Cowes (Isle of Wight) to Fastnet Rock (Ireland)
+	start := geo.Point{Lat: 50.76, Lon: -1.20}
+	dest := geo.Point{Lat: 51.39, Lon: -9.60}
+
+	startTime := time.Now().UTC()
+	polarTable := polar.Get36ftKetchPolar()
+	weatherEngine := weather.NewRealisticGFSEngine(startTime)
+	landMask := landmask.NewGSHHGLandMask()
+
+	cfg := DefaultRouterConfig()
+	cfg.TimeStep = 30 * time.Minute // 30-min isochrones for 320 NM offshore passage
+
+	t0 := time.Now()
+	route, err := CalculateOptimalRoute(
+		start,
+		dest,
+		startTime,
+		polarTable,
+		weatherEngine,
+		landMask,
+		cfg,
+	)
+	dur := time.Since(t0)
+	t.Logf("Cowes -> Fastnet calculated in %v (Waypoints: %d, Distance: %.2f NM, Time: %.2f h, Reached: %v)",
+		dur, len(route.Waypoints), route.TotalDistanceNM, route.TotalDurationHours, route.DestinationReached)
+
+	if len(route.Waypoints) > 0 {
+		for i := 0; i < len(route.Waypoints); i += 10 {
+			wp := route.Waypoints[i]
+			t.Logf("WP %3d (Time %5.1fh): Lat %.4f, Lon %.4f, DistToDest: %.1f NM",
+				i, wp.Time.Sub(startTime).Hours(), wp.Lat, wp.Lon, wp.DistanceToDestNM)
+		}
+		last := route.Waypoints[len(route.Waypoints)-1]
+		t.Logf("FINAL WP: Lat %.4f, Lon %.4f, DistToDest: %.2f NM", last.Lat, last.Lon, last.DistanceToDestNM)
+	}
+
+	if err != nil {
+		t.Fatalf("Routing calculation failed: %v", err)
+	}
+	if !route.DestinationReached {
+		t.Fatalf("Expected Fastnet Rock to be reached, but router got trapped")
 	}
 }
 

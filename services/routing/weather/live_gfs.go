@@ -43,7 +43,7 @@ func NewLiveNOAAGFSEngine(startTime time.Time) *LiveNOAAGFSEngine {
 		grids:    make(map[string]*cachedGrid),
 		fallback: NewRealisticGFSEngine(startTime),
 		httpClient: &http.Client{
-			Timeout: 12 * time.Second,
+			Timeout: 4 * time.Second,
 		},
 		forecastDays: 16,
 	}

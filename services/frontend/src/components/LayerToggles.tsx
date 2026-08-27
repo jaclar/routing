@@ -1,11 +1,13 @@
 import React from 'react';
-import { Layers, Wind, Eye, Clock } from 'lucide-react';
+import { Layers, Wind, Eye, Clock, ShieldAlert } from 'lucide-react';
 
 interface LayerTogglesProps {
   showIsochrones: boolean;
   onToggleIsochrones: () => void;
   showWindGrid: boolean;
   onToggleWindGrid: () => void;
+  showLandmask: boolean;
+  onToggleLandmask: () => void;
   activeTime?: string;
 }
 
@@ -14,6 +16,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   onToggleIsochrones,
   showWindGrid,
   onToggleWindGrid,
+  showLandmask,
+  onToggleLandmask,
   activeTime,
 }) => {
   const formatTime = (iso?: string) => {
@@ -52,6 +56,17 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
         />
         <Wind size={14} color="#10b981" />
         <span>GFS Wind & Barbs</span>
+      </label>
+
+      <label className="toggle-item">
+        <input
+          type="checkbox"
+          checked={showLandmask}
+          onChange={onToggleLandmask}
+          style={{ accentColor: '#f59e0b' }}
+        />
+        <ShieldAlert size={14} color="#f59e0b" />
+        <span>Landmass Polygons</span>
       </label>
 
       {showWindGrid && (

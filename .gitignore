@@ -79,9 +79,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # ==========================================
-# Docker & Local Overrides
+# Assets & Raw External Geo Data
 # ==========================================
-docker-compose.override.yml
-*.log
-scratch/
-tmp/
+assets/
+external assets/
+*.b

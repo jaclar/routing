@@ -16,6 +16,7 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /app/routing-server /app/routing-server
+COPY --from=builder /app/data /app/data
 
 EXPOSE 8080
 

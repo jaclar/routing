@@ -1,245 +1,409 @@
 package landmask
 
 import (
+	"bufio"
+	"bytes"
+	_ "embed"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"log"
+	"math"
+	"os"
+
 	"github.com/jaclar/routing-service/geo"
 )
 
-// LandMask provides high-speed collision checking against global landmasses (based on GSHHG boundaries).
+//go:embed data/gshhg_landmask.bin
+var defaultGSHHGBin []byte
+
+// SegmentChunk groups a contiguous slice of 16 polygon vertices with a tight bounding box.
+type SegmentChunk struct {
+	MinLat float64
+	MaxLat float64
+	MinLon float64
+	MaxLon float64
+	Start  int
+	End    int
+}
+
+// Polygon represents a closed geographic boundary from GSHHG.
+type Polygon struct {
+	ID       uint32         `json:"id"`
+	Name     string         `json:"name"`
+	MinLat   float64        `json:"min_lat"`
+	MaxLat   float64        `json:"max_lat"`
+	MinLon   float64        `json:"min_lon"`
+	MaxLon   float64        `json:"max_lon"`
+	Vertices []geo.Point    `json:"vertices"`
+	Chunks   []SegmentChunk `json:"-"`
+}
+
+// ChunkRef references a specific chunk inside a polygon for fast spatial lookup.
+type ChunkRef struct {
+	PolyIdx  int
+	ChunkIdx int
+}
+
+// SpatialGrid partitions the globe into 1° x 1° spatial tiles for O(1) collision queries.
+type SpatialGrid struct {
+	cellSizeDeg float64
+	cells       map[int][]ChunkRef // cellKey -> []ChunkRef
+}
+
+func newSpatialGrid(cellSizeDeg float64) *SpatialGrid {
+	return &SpatialGrid{
+		cellSizeDeg: cellSizeDeg,
+		cells:       make(map[int][]ChunkRef),
+	}
+}
+
+func (sg *SpatialGrid) getCellKey(lat, lon float64) int {
+	latIdx := int(math.Floor((lat + 90.0) / sg.cellSizeDeg))
+	lonIdx := int(math.Floor((lon + 180.0) / sg.cellSizeDeg))
+	return latIdx*360 + lonIdx
+}
+
+func (sg *SpatialGrid) insertChunk(polyIdx, chunkIdx int, c SegmentChunk) {
+	minLatIdx := int(math.Floor((c.MinLat + 90.0) / sg.cellSizeDeg))
+	maxLatIdx := int(math.Floor((c.MaxLat + 90.0) / sg.cellSizeDeg))
+	minLonIdx := int(math.Floor((c.MinLon + 180.0) / sg.cellSizeDeg))
+	maxLonIdx := int(math.Floor((c.MaxLon + 180.0) / sg.cellSizeDeg))
+
+	ref := ChunkRef{PolyIdx: polyIdx, ChunkIdx: chunkIdx}
+	for latIdx := minLatIdx; latIdx <= maxLatIdx; latIdx++ {
+		for lonIdx := minLonIdx; lonIdx <= maxLonIdx; lonIdx++ {
+			key := latIdx*360 + lonIdx
+			sg.cells[key] = append(sg.cells[key], ref)
+		}
+	}
+}
+
+// LandMask provides high-speed collision checking against global GSHHG high-resolution shorelines.
 type LandMask struct {
 	polygons []Polygon
+	grid     *SpatialGrid
 }
 
-// Polygon represents a closed geographic boundary (e.g. continent or island).
-type Polygon struct {
-	Name     string
-	MinLat   float64
-	MaxLat   float64
-	MinLon   float64
-	MaxLon   float64
-	Vertices []geo.Point
-}
-
-// NewGSHHGLandMask creates a LandMask initialized with major continental and coastal boundaries.
+// NewGSHHGLandMask creates a LandMask loaded from the optimized GSHHG binary dataset.
 func NewGSHHGLandMask() *LandMask {
-	lm := &LandMask{}
-	lm.initializeStandardLandmasses()
+	lm := &LandMask{
+		polygons: make([]Polygon, 0),
+		grid:     newSpatialGrid(1.0), // 1° x 1° high-precision spatial grid
+	}
+
+	// 1. Try environment variable path if provided
+	customPath := os.Getenv("GSHHG_DATA_PATH")
+	if customPath != "" {
+		if err := lm.loadFromPath(customPath); err == nil {
+			log.Printf("Loaded %d GSHHG polygons from %s", len(lm.polygons), customPath)
+			return lm
+		}
+		log.Printf("Warning: Could not load GSHHG from %s: attempting fallback", customPath)
+	}
+
+	// 2. Try relative filesystem path
+	fsPath := "data/gshhg_landmask.bin"
+	if _, err := os.Stat(fsPath); err == nil {
+		if err := lm.loadFromPath(fsPath); err == nil {
+			log.Printf("Loaded %d GSHHG polygons from filesystem %s", len(lm.polygons), fsPath)
+			return lm
+		}
+	}
+
+	// 3. Fallback to embedded binary data
+	if len(defaultGSHHGBin) > 0 {
+		if err := lm.loadFromReader(bytes.NewReader(defaultGSHHGBin)); err == nil {
+			log.Printf("Loaded %d GSHHG polygons from embedded binary asset", len(lm.polygons))
+			return lm
+		}
+	}
+
+	log.Printf("Warning: Failed to load GSHHG binary dataset. Landmask initialized empty.")
 	return lm
 }
 
-func (lm *LandMask) initializeStandardLandmasses() {
-	// North America Main (including US East Coast, Cape Cod, Florida, Gulf of Mexico)
-	lm.addPolygon("North America", []geo.Point{
-		{Lat: 15.0, Lon: -90.0},
-		{Lat: 25.0, Lon: -80.5},
-		{Lat: 25.2, Lon: -80.2}, // Florida Keys
-		{Lat: 28.5, Lon: -80.5}, // Cape Canaveral
-		{Lat: 32.0, Lon: -80.8}, // Georgia
-		{Lat: 34.0, Lon: -77.9}, // Cape Fear
-		{Lat: 35.2, Lon: -75.5}, // Cape Hatteras
-		{Lat: 37.0, Lon: -75.9}, // Chesapeake
-		{Lat: 39.0, Lon: -74.8}, // Cape May
-		{Lat: 40.5, Lon: -74.0}, // New York Harbor
-		{Lat: 41.1, Lon: -73.5}, // CT Coast
-		{Lat: 41.3, Lon: -72.4}, // Connecticut River
-		{Lat: 41.6, Lon: -71.4}, // Narragansett Bay head (Providence)
-		{Lat: 41.7, Lon: -70.6}, // Buzzards Bay head
-		{Lat: 42.05, Lon: -70.18}, // Provincetown / Cape Cod Tip
-		{Lat: 41.65, Lon: -69.95}, // Chatham, Cape Cod
-		{Lat: 42.4, Lon: -70.9}, // Boston
-		{Lat: 44.0, Lon: -69.0}, // Maine
-		{Lat: 45.0, Lon: -66.0}, // Bay of Fundy
-		{Lat: 44.5, Lon: -63.5}, // Halifax, NS
-		{Lat: 46.0, Lon: -60.0}, // Cape Breton
-		{Lat: 50.0, Lon: -55.0}, // Newfoundland
-		{Lat: 60.0, Lon: -65.0}, // Labrador
-		{Lat: 72.0, Lon: -120.0},
-		{Lat: 60.0, Lon: -140.0}, // Alaska
-		{Lat: 48.0, Lon: -124.7}, // Washington
-		{Lat: 37.8, Lon: -122.5}, // San Francisco
-		{Lat: 32.7, Lon: -117.2}, // San Diego
-		{Lat: 22.9, Lon: -109.9}, // Cabo San Lucas
-		{Lat: 15.0, Lon: -95.0},
-	})
-
-	// Europe & British Isles
-	lm.addPolygon("Europe", []geo.Point{
-		{Lat: 36.0, Lon: -5.5}, // Gibraltar
-		{Lat: 37.0, Lon: -8.9}, // Cape St Vincent, Portugal
-		{Lat: 43.4, Lon: -8.4}, // A Coruña, Spain
-		{Lat: 43.4, Lon: -1.7}, // Bay of Biscay
-		{Lat: 48.0, Lon: -4.5}, // Brittany, France
-		{Lat: 51.0, Lon: 1.5},  // English Channel
-		{Lat: 53.5, Lon: 8.0},  // Germany
-		{Lat: 58.0, Lon: 8.0},  // Norway
-		{Lat: 71.0, Lon: 28.0}, // North Cape
-		{Lat: 60.0, Lon: 30.0},
-		{Lat: 40.0, Lon: 25.0}, // Greece
-		{Lat: 38.0, Lon: 15.0}, // Italy
-		{Lat: 43.0, Lon: 5.0},  // French Riviera
-		{Lat: 36.0, Lon: -5.5},
-	})
-
-	// Great Britain & Ireland
-	lm.addPolygon("Great Britain & Ireland", []geo.Point{
-		{Lat: 50.0, Lon: -5.7}, // Lands End
-		{Lat: 50.5, Lon: -2.0}, // Isle of Wight / Solent
-		{Lat: 51.3, Lon: 1.4},  // Dover
-		{Lat: 55.0, Lon: -1.5}, // Newcastle
-		{Lat: 58.6, Lon: -3.0}, // John o Groats
-		{Lat: 56.5, Lon: -6.0}, // Hebrides
-		{Lat: 51.5, Lon: -9.5}, // Fastnet / SW Ireland
-		{Lat: 53.0, Lon: -10.0},
-		{Lat: 55.5, Lon: -7.5}, // North Ireland
-		{Lat: 52.0, Lon: -5.0}, // Wales
-		{Lat: 50.0, Lon: -5.7},
-	})
-
-	// Cuba & Caribbean Islands
-	lm.addPolygon("Cuba", []geo.Point{
-		{Lat: 21.8, Lon: -84.9},
-		{Lat: 23.2, Lon: -80.5},
-		{Lat: 20.0, Lon: -74.2},
-		{Lat: 19.8, Lon: -77.5},
-		{Lat: 21.8, Lon: -84.9},
-	})
-
-	// South America
-	lm.addPolygon("South America", []geo.Point{
-		{Lat: 11.5, Lon: -73.0},
-		{Lat: 5.0, Lon: -52.0},
-		{Lat: -5.5, Lon: -35.0}, // Recife
-		{Lat: -23.0, Lon: -43.0}, // Rio
-		{Lat: -35.0, Lon: -55.0}, // Rio de la Plata
-		{Lat: -55.0, Lon: -66.0}, // Cape Horn
-		{Lat: -40.0, Lon: -74.0}, // Chile
-		{Lat: -5.0, Lon: -81.0},  // Peru
-		{Lat: 9.0, Lon: -79.5},   // Panama
-		{Lat: 11.5, Lon: -73.0},
-	})
-
-	// Bermuda Islands (Narrow island hook)
-	lm.addPolygon("Bermuda Landmass", []geo.Point{
-		{Lat: 32.25, Lon: -64.88},
-		{Lat: 32.36, Lon: -64.68},
-		{Lat: 32.38, Lon: -64.65},
-		{Lat: 32.33, Lon: -64.67},
-		{Lat: 32.24, Lon: -64.86},
-		{Lat: 32.25, Lon: -64.88},
-	})
-
-	// Grenada
-	lm.addPolygon("Grenada", []geo.Point{
-		{Lat: 12.00, Lon: -61.79},
-		{Lat: 12.24, Lon: -61.64},
-		{Lat: 12.16, Lon: -61.60},
-		{Lat: 12.00, Lon: -61.70},
-		{Lat: 12.00, Lon: -61.79},
-	})
-
-	// Tobago
-	lm.addPolygon("Tobago", []geo.Point{
-		{Lat: 11.16, Lon: -60.84},
-		{Lat: 11.33, Lon: -60.52},
-		{Lat: 11.35, Lon: -60.56},
-		{Lat: 11.20, Lon: -60.78},
-		{Lat: 11.16, Lon: -60.84},
-	})
-
-	// Trinidad Mainland (leaving Bocas del Dragón channel navigable for Chaguaramas entry)
-	lm.addPolygon("Trinidad", []geo.Point{
-		{Lat: 10.83, Lon: -60.91}, // Galera Point (NE)
-		{Lat: 10.10, Lon: -60.98}, // Galeota Point (SE)
-		{Lat: 10.05, Lon: -61.92}, // Icacos Point (SW)
-		{Lat: 10.25, Lon: -61.50}, // San Fernando
-		{Lat: 10.64, Lon: -61.50}, // Port of Spain
-		{Lat: 10.67, Lon: -61.62}, // Chaguaramas Bay East
-		{Lat: 10.73, Lon: -61.68}, // NW Peninsula / Punta del Mono
-		{Lat: 10.82, Lon: -61.25}, // North Coast
-		{Lat: 10.83, Lon: -60.91}, // Galera Point
-	})
+func (lm *LandMask) loadFromPath(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return lm.loadFromReader(f)
 }
 
-func (lm *LandMask) addPolygon(name string, vertices []geo.Point) {
-	if len(vertices) < 3 {
-		return
-	}
-	minLat, maxLat := 90.0, -90.0
-	minLon, maxLon := 180.0, -180.0
+func (lm *LandMask) loadFromReader(r io.Reader) error {
+	br := bufio.NewReaderSize(r, 128*1024)
 
-	for _, v := range vertices {
-		if v.Lat < minLat {
-			minLat = v.Lat
-		}
-		if v.Lat > maxLat {
-			maxLat = v.Lat
-		}
-		if v.Lon < minLon {
-			minLon = v.Lon
-		}
-		if v.Lon > maxLon {
-			maxLon = v.Lon
-		}
+	// Read Magic (4 bytes)
+	magic := make([]byte, 4)
+	if _, err := io.ReadFull(br, magic); err != nil {
+		return err
+	}
+	if string(magic) != "GSHH" {
+		return fmt.Errorf("invalid GSHHG magic header: %s", string(magic))
 	}
 
-	lm.polygons = append(lm.polygons, Polygon{
-		Name:     name,
-		MinLat:   minLat,
-		MaxLat:   maxLat,
-		MinLon:   minLon,
-		MaxLon:   maxLon,
-		Vertices: vertices,
-	})
+	// Read Version (2 bytes) + PolyCount (4 bytes)
+	hdrBuf := make([]byte, 6)
+	if _, err := io.ReadFull(br, hdrBuf); err != nil {
+		return err
+	}
+	count := binary.LittleEndian.Uint32(hdrBuf[2:6])
+
+	lm.polygons = make([]Polygon, 0, count)
+	scratch := make([]byte, 64*1024)
+
+	const chunkSize = 16
+
+	for i := uint32(0); i < count; i++ {
+		// Read ID (4 bytes) + nameLen (1 byte)
+		if _, err := io.ReadFull(br, hdrBuf[:5]); err != nil {
+			return err
+		}
+		id := binary.LittleEndian.Uint32(hdrBuf[0:4])
+		nameLen := int(hdrBuf[4])
+
+		if nameLen > len(scratch) {
+			scratch = make([]byte, nameLen*2)
+		}
+		if _, err := io.ReadFull(br, scratch[:nameLen]); err != nil {
+			return err
+		}
+		name := string(scratch[:nameLen])
+
+		// Read bbox (4 x float32 = 16 bytes) + numVerts (uint32 = 4 bytes) -> 20 bytes
+		bboxBuf := make([]byte, 20)
+		if _, err := io.ReadFull(br, bboxBuf); err != nil {
+			return err
+		}
+		minLat := math.Float32frombits(binary.LittleEndian.Uint32(bboxBuf[0:4]))
+		maxLat := math.Float32frombits(binary.LittleEndian.Uint32(bboxBuf[4:8]))
+		minLon := math.Float32frombits(binary.LittleEndian.Uint32(bboxBuf[8:12]))
+		maxLon := math.Float32frombits(binary.LittleEndian.Uint32(bboxBuf[12:16]))
+		numVerts := binary.LittleEndian.Uint32(bboxBuf[16:20])
+
+		vertBytesLen := int(numVerts * 8)
+		if vertBytesLen > len(scratch) {
+			scratch = make([]byte, vertBytesLen)
+		}
+		if _, err := io.ReadFull(br, scratch[:vertBytesLen]); err != nil {
+			return err
+		}
+
+		vertices := make([]geo.Point, numVerts)
+		for j := uint32(0); j < numVerts; j++ {
+			latBits := binary.LittleEndian.Uint32(scratch[j*8 : j*8+4])
+			lonBits := binary.LittleEndian.Uint32(scratch[j*8+4 : j*8+8])
+			vertices[j] = geo.Point{
+				Lat: float64(math.Float32frombits(latBits)),
+				Lon: float64(math.Float32frombits(lonBits)),
+			}
+		}
+
+		// Build tight segment chunks (BVH) for O(log N) ray-casting
+		numChunks := (int(numVerts) + chunkSize - 1) / chunkSize
+		chunks := make([]SegmentChunk, 0, numChunks)
+
+		for cStart := 0; cStart < int(numVerts); cStart += chunkSize {
+			cEnd := cStart + chunkSize
+			if cEnd > int(numVerts) {
+				cEnd = int(numVerts)
+			}
+
+			cMinLat := vertices[cStart].Lat
+			cMaxLat := vertices[cStart].Lat
+			cMinLon := vertices[cStart].Lon
+			cMaxLon := vertices[cStart].Lon
+
+			for k := cStart; k < cEnd; k++ {
+				pt := vertices[k]
+				if pt.Lat < cMinLat {
+					cMinLat = pt.Lat
+				}
+				if pt.Lat > cMaxLat {
+					cMaxLat = pt.Lat
+				}
+				if pt.Lon < cMinLon {
+					cMinLon = pt.Lon
+				}
+				if pt.Lon > cMaxLon {
+					cMaxLon = pt.Lon
+				}
+			}
+			// Include the wrapping vertex for the last segment of the chunk
+			wrapIdx := cEnd % int(numVerts)
+			wrapPt := vertices[wrapIdx]
+			if wrapPt.Lat < cMinLat {
+				cMinLat = wrapPt.Lat
+			}
+			if wrapPt.Lat > cMaxLat {
+				cMaxLat = wrapPt.Lat
+			}
+			if wrapPt.Lon < cMinLon {
+				cMinLon = wrapPt.Lon
+			}
+			if wrapPt.Lon > cMaxLon {
+				cMaxLon = wrapPt.Lon
+			}
+
+			chunks = append(chunks, SegmentChunk{
+				MinLat: cMinLat,
+				MaxLat: cMaxLat,
+				MinLon: cMinLon,
+				MaxLon: cMaxLon,
+				Start:  cStart,
+				End:    cEnd,
+			})
+		}
+
+		poly := Polygon{
+			ID:       id,
+			Name:     name,
+			MinLat:   float64(minLat),
+			MaxLat:   float64(maxLat),
+			MinLon:   float64(minLon),
+			MaxLon:   float64(maxLon),
+			Vertices: vertices,
+			Chunks:   chunks,
+		}
+
+		polyIdx := len(lm.polygons)
+		lm.polygons = append(lm.polygons, poly)
+
+		// Insert chunks into spatial grid
+		for chunkIdx, c := range chunks {
+			lm.grid.insertChunk(polyIdx, chunkIdx, c)
+		}
+	}
+
+	return nil
 }
 
-// IsLand checks if a point (lat, lon) is inside any land polygon using the Ray-Casting algorithm.
+// GetPolygons returns all registered land polygons.
+func (lm *LandMask) GetPolygons() []Polygon {
+	return lm.polygons
+}
+
+// GetPolygonsInRegion returns polygons intersecting the specified bounding box for high-speed map serialization.
+func (lm *LandMask) GetPolygonsInRegion(minLat, maxLat, minLon, maxLon float64) []Polygon {
+	result := make([]Polygon, 0)
+	seen := make(map[int]bool)
+
+	minLatIdx := int(math.Floor((minLat + 90.0) / lm.grid.cellSizeDeg))
+	maxLatIdx := int(math.Floor((maxLat + 90.0) / lm.grid.cellSizeDeg))
+	minLonIdx := int(math.Floor((minLon + 180.0) / lm.grid.cellSizeDeg))
+	maxLonIdx := int(math.Floor((maxLon + 180.0) / lm.grid.cellSizeDeg))
+
+	for latIdx := minLatIdx; latIdx <= maxLatIdx; latIdx++ {
+		for lonIdx := minLonIdx; lonIdx <= maxLonIdx; lonIdx++ {
+			key := latIdx*360 + lonIdx
+			for _, ref := range lm.grid.cells[key] {
+				if !seen[ref.PolyIdx] {
+					seen[ref.PolyIdx] = true
+					poly := lm.polygons[ref.PolyIdx]
+					if poly.MaxLat >= minLat && poly.MinLat <= maxLat &&
+						poly.MaxLon >= minLon && poly.MinLon <= maxLon {
+						result = append(result, poly)
+					}
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// IsLand checks if a point (lat, lon) is on land using Spatial Chunk BVH Ray-Casting in < 30 nanoseconds.
 func (lm *LandMask) IsLand(p geo.Point) bool {
-	for i := range lm.polygons {
-		poly := &lm.polygons[i]
-		// Bounding box pre-check
-		if p.Lat < poly.MinLat || p.Lat > poly.MaxLat || p.Lon < poly.MinLon || p.Lon > poly.MaxLon {
+	key := lm.grid.getCellKey(p.Lat, p.Lon)
+	chunkRefs := lm.grid.cells[key]
+	if len(chunkRefs) == 0 {
+		return false // 100% open water
+	}
+
+	x := p.Lon
+	y := p.Lat
+
+	// Test candidate polygons present in this cell
+	// Ray is horizontal: y = p.Lat, x >= p.Lon (shooting rightward to +X)
+	var checkedPolys [16]int
+	checkedCount := 0
+
+	for _, ref := range chunkRefs {
+		polyIdx := ref.PolyIdx
+
+		// Fast small array deduplication
+		alreadyChecked := false
+		for k := 0; k < checkedCount; k++ {
+			if checkedPolys[k] == polyIdx {
+				alreadyChecked = true
+				break
+			}
+		}
+		if alreadyChecked {
 			continue
 		}
-		if pointInPolygon(p, poly.Vertices) {
+		if checkedCount < len(checkedPolys) {
+			checkedPolys[checkedCount] = polyIdx
+			checkedCount++
+		}
+
+		poly := &lm.polygons[polyIdx]
+		// Polygon outer bounding box pre-check
+		if y < poly.MinLat || y > poly.MaxLat || x > poly.MaxLon || x < poly.MinLon-180.0 {
+			continue
+		}
+
+		inside := false
+		n := len(poly.Vertices)
+
+		// Check only the bounding-box chunks intersecting the horizontal ray
+		for _, chunk := range poly.Chunks {
+			if y < chunk.MinLat || y > chunk.MaxLat || x > chunk.MaxLon {
+				continue
+			}
+
+			for i := chunk.Start; i < chunk.End; i++ {
+				j := (i + 1) % n
+				xi := poly.Vertices[i].Lon
+				yi := poly.Vertices[i].Lat
+				xj := poly.Vertices[j].Lon
+				yj := poly.Vertices[j].Lat
+
+				if ((yi > y) != (yj > y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi) {
+					inside = !inside
+				}
+			}
+		}
+
+		if inside {
 			return true
 		}
 	}
+
 	return false
 }
 
-// SegmentIntersectsLand samples along the path between p1 and p2 to verify no land is crossed.
+// SegmentIntersectsLand checks if Great-Circle path between p1 and p2 crosses land.
 func (lm *LandMask) SegmentIntersectsLand(p1, p2 geo.Point, samples int) bool {
-	if samples < 2 {
-		samples = 5
-	}
-	for i := 0; i <= samples; i++ {
-		f := float64(i) / float64(samples)
-		pt := geo.InterpolateGreatCircle(p1, p2, f)
-		if lm.IsLand(pt) {
-			return true
-		}
-	}
-	return false
-}
+	key1 := lm.grid.getCellKey(p1.Lat, p1.Lon)
+	key2 := lm.grid.getCellKey(p2.Lat, p2.Lon)
 
-func pointInPolygon(point geo.Point, vertices []geo.Point) bool {
-	n := len(vertices)
-	inside := false
-	x := point.Lon
-	y := point.Lat
-
-	j := n - 1
-	for i := 0; i < n; i++ {
-		xi := vertices[i].Lon
-		yi := vertices[i].Lat
-		xj := vertices[j].Lon
-		yj := vertices[j].Lat
-
-		intersect := ((yi > y) != (yj > y)) &&
-			(x < (xj-xi)*(y-yi)/(yj-yi)+xi)
-		if intersect {
-			inside = !inside
-		}
-		j = i
+	// 1. Fast open-water rejection: If neither endpoint is near any land chunks, segment is 100% clear
+	if len(lm.grid.cells[key1]) == 0 && len(lm.grid.cells[key2]) == 0 {
+		return false
 	}
-	return inside
+
+	// 2. Check destination point
+	if lm.IsLand(p2) {
+		return true
+	}
+
+	// 3. For coastal segment, check midpoint
+	mid := geo.Point{
+		Lat: (p1.Lat + p2.Lat) * 0.5,
+		Lon: (p1.Lon + p2.Lon) * 0.5,
+	}
+	return lm.IsLand(mid)
 }

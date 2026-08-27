@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Point, RouteResult, WeatherGridResponse } from '../types';
+import { LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from '../types';
 
 // Fix Leaflet default marker icons for Webpack/Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -17,8 +17,10 @@ interface MapViewProps {
   routeResult: RouteResult | null;
   currentWaypointIndex: number;
   weatherGrid: WeatherGridResponse | null;
+  landmaskPolygons: LandmaskPolygon[];
   showIsochrones: boolean;
   showWindGrid: boolean;
+  showLandmask: boolean;
 }
 
 /**
@@ -228,8 +230,10 @@ export const MapView: React.FC<MapViewProps> = ({
   routeResult,
   currentWaypointIndex,
   weatherGrid,
+  landmaskPolygons,
   showIsochrones,
   showWindGrid,
+  showLandmask,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -241,6 +245,7 @@ export const MapView: React.FC<MapViewProps> = ({
     isochroneGroup?: L.LayerGroup;
     windGroup?: L.LayerGroup;
     windHeatmapOverlay?: L.ImageOverlay;
+    landmaskGroup?: L.LayerGroup;
   }>({});
 
   // 1. Initialize Map
@@ -251,6 +256,7 @@ export const MapView: React.FC<MapViewProps> = ({
       center: [(startPoint.lat + destPoint.lat) / 2, (startPoint.lon + destPoint.lon) / 2],
       zoom: 4,
       zoomControl: false,
+      preferCanvas: true,
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -269,6 +275,7 @@ export const MapView: React.FC<MapViewProps> = ({
       maxZoom: 18,
     }).addTo(map);
 
+    layersRef.current.landmaskGroup = L.layerGroup().addTo(map);
     layersRef.current.isochroneGroup = L.layerGroup().addTo(map);
     layersRef.current.windGroup = L.layerGroup().addTo(map);
 
@@ -472,6 +479,42 @@ export const MapView: React.FC<MapViewProps> = ({
       `)
       .addTo(map);
   }, [routeResult, currentWaypointIndex]);
+
+  // 6. Render Landmass Collision Polygons Layer
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = layersRef.current.landmaskGroup;
+    if (!map || !group) return;
+
+    group.clearLayers();
+    if (!showLandmask || !landmaskPolygons || landmaskPolygons.length === 0) return;
+
+    const canvasRenderer = L.canvas({ padding: 0.5 });
+
+    landmaskPolygons.forEach((poly) => {
+      if (!poly.vertices || poly.vertices.length < 3) return;
+      const latLngs = poly.vertices.map((v) => [v.lat, v.lon] as [number, number]);
+
+      const polygonLayer = L.polygon(latLngs, {
+        renderer: canvasRenderer,
+        color: '#f59e0b',          // Amber warning stroke
+        weight: 2,
+        dashArray: '5, 5',
+        fillColor: '#ef4444',      // Coral red collision zone
+        fillOpacity: 0.22,
+      });
+
+      polygonLayer.bindTooltip(
+        `<div style="font-family: var(--font-sans); font-size: 11px;">
+           <b style="color: #f59e0b;">🛡️ ${poly.name}</b><br/>
+           <span style="color: #94a3b8;">GSHHG Land Boundary (${poly.vertices.length} vertices)</span>
+         </div>`,
+        { sticky: true }
+      );
+
+      group.addLayer(polygonLayer);
+    });
+  }, [landmaskPolygons, showLandmask]);
 
   return <div ref={mapContainerRef} className="map-view-container" />;
 };

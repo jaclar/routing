@@ -80,7 +80,7 @@ type RouterConfig struct {
 	ArrivalRadiusNM    float64
 	HeadingSpreadDeg   float64
 	HeadingStepDeg     float64
-	NumAngularBins     int
+	MaxFrontierNodes   int
 	TackPenaltyMinutes float64
 	GybePenaltyMinutes float64
 }
@@ -90,9 +90,9 @@ func DefaultRouterConfig() RouterConfig {
 		TimeStep:           2 * time.Hour,
 		MaxDurationHours:   400.0, // Up to ~16 days max for long ocean passages
 		ArrivalRadiusNM:    15.0,  // Arrival capture radius
-		HeadingSpreadDeg:   125.0, // +/- 125 degrees from destination bearing for wide tacking/gybing
-		HeadingStepDeg:     5.0,   // Ray angular spacing
-		NumAngularBins:     120,   // Frontier pruning sectors
+		HeadingSpreadDeg:   165.0, // Wide heading fan (+/-165°) to round capes, islands, and headlands
+		HeadingStepDeg:     10.0,  // Ray angular spacing
+		MaxFrontierNodes:   400,   // Spatial frontier node budget
 		TackPenaltyMinutes: 5.0,   // Default 5 minutes lost per tack for cruisers
 		GybePenaltyMinutes: 8.0,   // Default 8 minutes lost per gybe for cruisers
 	}
@@ -299,8 +299,8 @@ func CalculateOptimalRoute(
 			break
 		}
 
-		// 4. Prune candidates to retain advancing convex frontier
-		frontier = pruneFrontier(candidates, start, dest, cfg.NumAngularBins)
+		// 4. Prune candidates using 2D Local Spatial Grid Dominance to keep divergent navigational channels
+		frontier = pruneFrontier(candidates, start, dest, cfg.MaxFrontierNodes, cfg.TimeStep)
 	}
 
 	// 5. Select terminal node and backtrack path
@@ -349,49 +349,65 @@ func CalculateOptimalRoute(
 	}, nil
 }
 
-// pruneFrontier partitions candidate nodes into angular sectors relative to the start-destination axis
-// and retains only the node with minimum distance to destination in each sector.
-func pruneFrontier(candidates []*Node, start, dest geo.Point, numBins int) []*Node {
-	if len(candidates) <= numBins {
+// pruneFrontier uses 2D Local Spatial Dominance to deduplicate overlapping wavefront nodes
+// in the same geographic cell while preserving multiple divergent routing branches
+// through complex channels (e.g. Solent vs Southampton), straits, and around headlands.
+func pruneFrontier(candidates []*Node, start, dest geo.Point, maxNodes int, timeStep time.Duration) []*Node {
+	if len(candidates) <= 20 {
 		return candidates
 	}
 
-	refBearing := geo.InitialBearing(start, dest)
-	binMap := make(map[int]*Node, numBins)
+	// Dynamic spatial cell size scaled with the step distance
+	// (e.g. ~1.2 NM for 5-min steps, ~2.5 NM for 30-min steps, ~7 NM for 2-hr steps)
+	stepDistEstNM := math.Max(0.8, timeStep.Hours()*6.5)
+	cellSizeDeg := math.Max(0.015, (stepDistEstNM/60.0)*0.75)
+
+	type spatialKey struct {
+		latIdx  int
+		lonIdx  int
+		quadIdx int
+	}
+
+	bucketMap := make(map[spatialKey]*Node, len(candidates))
 
 	for _, cand := range candidates {
-		bearingFromStart := geo.InitialBearing(start, cand.Point)
-		relAngle := geo.NormalizeAngle360(bearingFromStart - refBearing)
-		if relAngle > 180.0 {
-			relAngle -= 360.0
+		latIdx := int(math.Floor((cand.Point.Lat + 90.0) / cellSizeDeg))
+		lonIdx := int(math.Floor((cand.Point.Lon + 180.0) / cellSizeDeg))
+		quadIdx := int(math.Floor(cand.Heading/90.0)) % 4
+		if quadIdx < 0 {
+			quadIdx += 4
 		}
 
-		binIdx := int(math.Floor((relAngle + 120.0) / 240.0 * float64(numBins)))
-		if binIdx < 0 {
-			binIdx = 0
-		}
-		if binIdx >= numBins {
-			binIdx = numBins - 1
-		}
+		key := spatialKey{latIdx: latIdx, lonIdx: lonIdx, quadIdx: quadIdx}
 
-		existing, found := binMap[binIdx]
+		existing, found := bucketMap[key]
 		if !found || cand.DistanceToDest < existing.DistanceToDest {
-			binMap[binIdx] = cand
+			bucketMap[key] = cand
 		}
 	}
 
-	res := make([]*Node, 0, len(binMap))
-	for _, node := range binMap {
-		res = append(res, node)
+	survivors := make([]*Node, 0, len(bucketMap))
+	for _, node := range bucketMap {
+		survivors = append(survivors, node)
 	}
 
-	sort.Slice(res, func(i, j int) bool {
-		bI := geo.InitialBearing(start, res[i].Point)
-		bJ := geo.InitialBearing(start, res[j].Point)
-		return bI < bJ
+	// If total survivors exceed max budget, keep the best nodes closest to destination
+	if len(survivors) > maxNodes && maxNodes > 0 {
+		sort.Slice(survivors, func(i, j int) bool {
+			return survivors[i].DistanceToDest < survivors[j].DistanceToDest
+		})
+		survivors = survivors[:maxNodes]
+	}
+
+	// Sort survivors by longitude and latitude for clean wavefront visualization
+	sort.Slice(survivors, func(i, j int) bool {
+		if survivors[i].Point.Lon != survivors[j].Point.Lon {
+			return survivors[i].Point.Lon < survivors[j].Point.Lon
+		}
+		return survivors[i].Point.Lat < survivors[j].Point.Lat
 	})
 
-	return res
+	return survivors
 }
 
 func backtrackRoute(terminal *Node) []Waypoint {

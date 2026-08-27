@@ -12,6 +12,7 @@ func (s *Server) SetupRouter() http.Handler {
 	mux.HandleFunc("/api/v1/health", s.HandleHealth)
 	mux.HandleFunc("/api/v1/route", s.HandleRoute)
 	mux.HandleFunc("/api/v1/weather/grid", s.HandleWeatherGrid)
+	mux.HandleFunc("/api/v1/landmask/polygons", s.HandleLandmaskPolygons)
 
 	return enableCORS(mux)
 }
