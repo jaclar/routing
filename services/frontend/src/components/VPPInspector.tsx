@@ -265,14 +265,40 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
     }
   };
 
-  // Helper for matrix cell color
-  const getSpeedHeatmapColor = (speed: number, maxSpeed: number = 9.0) => {
-    const norm = Math.min(Math.max(speed / maxSpeed, 0), 1);
-    if (speed < 0.1) return 'rgba(15, 23, 42, 0.4)';
-    const r = Math.round(2 + norm * 54);
-    const g = Math.round(132 + norm * 57);
-    const b = Math.round(199 + norm * 49);
-    return `rgba(${r}, ${g}, ${b}, ${0.15 + norm * 0.45})`;
+  // Matplotlib 'plasma' colormap reference RGB samples for t in [0, 1]
+  const PLASMA_STOPS: [number, number, number][] = [
+    [13, 8, 135],    // 0.00 #0d0887
+    [65, 3, 157],    // 0.10 #41039d
+    [106, 0, 168],   // 0.20 #6a00a8
+    [143, 13, 161],  // 0.30 #8f0da1
+    [177, 42, 144],  // 0.40 #b12a90
+    [204, 71, 120],  // 0.50 #cc4778
+    [225, 100, 98],  // 0.60 #e16462
+    [241, 130, 77],  // 0.70 #f1824d
+    [251, 162, 56],  // 0.80 #fba238
+    [253, 203, 42],  // 0.90 #fdcb2a
+    [240, 249, 33],  // 1.00 #f0f921
+  ];
+
+  const getTWSColumnColor = (twsIndex: number, totalTws: number) => {
+    // Exactly matches np.linspace(0.1, 0.9, len(tws_list)) used in polar_diagram plotter
+    const norm = totalTws > 1 ? 0.1 + (twsIndex / (totalTws - 1)) * 0.8 : 0.5;
+    const pos = norm * (PLASMA_STOPS.length - 1);
+    const idx = Math.floor(pos);
+    const frac = pos - idx;
+    const c0 = PLASMA_STOPS[idx];
+    const c1 = PLASMA_STOPS[Math.min(idx + 1, PLASMA_STOPS.length - 1)];
+    const r = Math.round(c0[0] + (c1[0] - c0[0]) * frac);
+    const g = Math.round(c0[1] + (c1[1] - c0[1]) * frac);
+    const b = Math.round(c0[2] + (c1[2] - c0[2]) * frac);
+    const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    return {
+      r,
+      g,
+      b,
+      hex,
+      rgba: (alpha: number) => `rgba(${r}, ${g}, ${b}, ${alpha})`,
+    };
   };
 
   const builtinList = presets.filter((p) => !p.isCustom);
@@ -646,42 +672,68 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
                     <thead>
                       <tr>
                         <th className="sticky-col">TWA \ TWS</th>
-                        {polarData.tws_list.map((tws) => (
-                          <th key={tws}>{tws} kt</th>
-                        ))}
+                        {polarData.tws_list.map((tws, twsIdx) => {
+                          const colColor = getTWSColumnColor(twsIdx, polarData.tws_list.length);
+                          return (
+                            <th
+                              key={tws}
+                              style={{
+                                borderBottom: `2px solid ${colColor.hex}`,
+                              }}
+                            >
+                              <div
+                                className="tws-header-pill"
+                                style={{
+                                  backgroundColor: colColor.rgba(0.18),
+                                  borderColor: colColor.rgba(0.4),
+                                }}
+                              >
+                                <span
+                                  className="tws-color-dot"
+                                  style={{ backgroundColor: colColor.hex }}
+                                />
+                                <span style={{ color: colColor.hex, fontWeight: 700 }}>
+                                  {tws} kt
+                                </span>
+                              </div>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
-                      {polarData.twa_list.map((twa, twaIdx) => (
-                        <tr key={twa} className={twa < 28 ? 'nogo-row' : ''}>
-                          <td className={`sticky-col font-bold ${twa < 28 ? 'nogo-header' : ''}`}>
-                            {twa}° {twa < 28 ? (twa === 0 ? '(Head/Irons)' : '(No-Go)') : ''}
-                          </td>
-                          {polarData.tws_list.map((tws, twsIdx) => {
-                            const speed = polarData.speed_matrix[twsIdx]?.[twaIdx] || 0;
-                            return (
-                              <td
-                                key={`${twa}_${tws}`}
-                                style={{
-                                  backgroundColor:
-                                    twa < 28
-                                      ? 'rgba(239, 68, 68, 0.05)'
-                                      : getSpeedHeatmapColor(speed),
-                                  color: twa < 28 ? '#64748b' : undefined,
-                                }}
-                                className={`speed-cell ${twa < 28 ? 'nogo-cell' : ''}`}
-                                title={
-                                  twa < 28
-                                    ? `TWA: ${twa}° (In-Irons No-Go Zone) -> 0.00 kts`
-                                    : `TWA: ${twa}°, TWS: ${tws} kts -> Boat Speed: ${speed.toFixed(2)} kts`
-                                }
-                              >
-                                {speed > 0.05 ? speed.toFixed(2) : '0.00'}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                      {polarData.twa_list
+                        .map((twa, twaIdx) => ({ twa, twaIdx }))
+                        .filter(({ twa }) => twa >= 28)
+                        .map(({ twa, twaIdx }) => (
+                          <tr key={twa}>
+                            <td className="sticky-col font-bold">
+                              {twa}°
+                            </td>
+                            {polarData.tws_list.map((tws, twsIdx) => {
+                              const colColor = getTWSColumnColor(
+                                twsIdx,
+                                polarData.tws_list.length
+                              );
+                              const speed = polarData.speed_matrix[twsIdx]?.[twaIdx] || 0;
+                              const speedFrac = Math.min(Math.max(speed / 9.5, 0.05), 1.0);
+
+                              return (
+                                <td
+                                  key={`${twa}_${tws}`}
+                                  style={{
+                                    backgroundColor: colColor.rgba(0.08 + speedFrac * 0.35),
+                                    color: '#f8fafc',
+                                  }}
+                                  className="speed-cell"
+                                  title={`TWA: ${twa}°, TWS: ${tws} kts -> Boat Speed: ${speed.toFixed(2)} kts`}
+                                >
+                                  {speed.toFixed(2)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>

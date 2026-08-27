@@ -81,14 +81,13 @@ def plot_polar_diagram(
         # Mirror on port
         ax.plot([-t for t in downwind_twas], downwind_spds, "s--", color="#d40055", linewidth=1.5, markersize=4.5)
 
-    # Visual No-Go Zone (< 28 deg)
+    # Visual in-irons zone (< 28 deg) in neutral gray without labels
     max_speed = float(np.nanmax(polar_table.speed_table)) if polar_table.speed_table.size > 0 else 10.0
     if not np.isfinite(max_speed) or max_speed <= 0:
         max_speed = 10.0
     nogo_theta = np.linspace(np.deg2rad(-28.0), np.deg2rad(28.0), 60)
     nogo_r = np.full_like(nogo_theta, max_speed * 1.05)
-    ax.fill_between(nogo_theta, 0, nogo_r, color="#ef4444", alpha=0.10, label="No-Go Zone (<28°)")
-    ax.text(0, max_speed * 0.4, "NO-GO\nZONE", color="#dc2626", fontsize=8.5, fontweight="bold", ha="center", va="center")
+    ax.fill_between(nogo_theta, 0, nogo_r, color="#64748b", alpha=0.18, zorder=1)
 
     ax.set_thetagrids(
         np.arange(0, 360, 30),

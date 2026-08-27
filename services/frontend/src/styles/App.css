@@ -872,13 +872,32 @@ body {
 
 .vpp-matrix-table th {
   background: #0f172a;
-  color: var(--accent);
-  padding: 8px 10px;
+  padding: 8px 6px;
   border: 1px solid rgba(148, 163, 184, 0.12);
   text-align: center;
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.tws-header-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.tws-color-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 6px currentColor;
 }
 
 .vpp-matrix-table td {
@@ -888,10 +907,18 @@ body {
   transition: all 0.15s;
 }
 
+.vpp-matrix-table td.speed-cell {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
 .vpp-matrix-table td.speed-cell:hover {
-  filter: brightness(1.3);
-  transform: scale(1.05);
+  filter: brightness(1.35);
+  transform: scale(1.06);
   cursor: default;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 .sticky-col {
@@ -902,20 +929,6 @@ body {
   font-weight: 700;
   color: var(--text-main);
   border-right: 2px solid var(--border-color) !important;
-}
-
-.nogo-header {
-  color: #f87171 !important;
-  font-size: 0.73rem;
-}
-
-.nogo-row {
-  background: rgba(239, 68, 68, 0.04);
-}
-
-.nogo-cell {
-  color: #64748b !important;
-  font-style: italic;
 }
 
 .spin {
