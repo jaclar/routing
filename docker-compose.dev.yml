@@ -1,0 +1,15 @@
+# Development override: exposes internal services directly to host ports for debugging
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  vpp-service:
+    ports:
+      - "8000:8000"
+
+  routing-service:
+    ports:
+      - "8080:8080"
+
+  frontend:
+    ports:
+      - "3333:80"

@@ -1,0 +1,65 @@
+# Caddy Production Reverse Proxy Configuration
+# Automatic HTTPS with Let's Encrypt / ZeroSSL
+
+{$DOMAIN:localhost} {
+    # Automatic HTTPS is enabled for valid domain names.
+    # When DOMAIN is set to a public domain (e.g. routing.example.com),
+    # Caddy automatically provisions and renews Let's Encrypt SSL certificates.
+    # When DOMAIN is localhost, Caddy uses internal self-signed TLS.
+
+    # Enable modern Gzip and Zstandard compression
+    encode zstd gzip
+
+    # Production Security Headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Proxy Routing & Weather API to Go routing service
+    handle /api/v1/route* {
+        reverse_proxy routing-service:8080
+    }
+
+    handle /api/v1/weather* {
+        reverse_proxy routing-service:8080
+    }
+
+    handle /api/v1/landmask* {
+        reverse_proxy routing-service:8080
+    }
+
+    # Proxy VPP & Polar API to Python FastAPI VPP service
+    handle /api/v1/presets* {
+        reverse_proxy vpp-service:8000
+    }
+
+    handle /api/v1/solve* {
+        reverse_proxy vpp-service:8000
+    }
+
+    handle /api/v1/plot* {
+        reverse_proxy vpp-service:8000
+    }
+
+    handle /api/v1/export* {
+        reverse_proxy vpp-service:8000
+    }
+
+    # Health check endpoints
+    handle /health {
+        reverse_proxy routing-service:8080
+    }
+
+    handle /api/v1/health* {
+        reverse_proxy routing-service:8080
+    }
+
+    # Proxy all frontend requests & SPA routes to the React frontend container
+    handle {
+        reverse_proxy frontend:80
+    }
+}

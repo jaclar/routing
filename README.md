@@ -43,16 +43,35 @@ graph TD
 
 ## Quickstart with Docker Compose
 
-Run all 3 services together with a single command:
+### 1. Production Deployment (Automatic Let's Encrypt SSL)
 
+Configure your domain in `.env`:
+```bash
+cp .env.example .env
+# Edit DOMAIN (e.g. routing.yourdomain.com) and ACME_EMAIL
+```
+
+Start the stack:
+```bash
+docker compose up -d --build
+```
+
+- **Caddy Reverse Proxy**: Handles edge TLS/SSL via Let's Encrypt on ports `80` & `443` (with HTTP/3 QUIC).
+- **Certificates**: Automatically provisioned, renewed, and persisted in the `sailboat_caddy_data` volume.
+- **Microservices**: Secured internally within Docker bridge network `routing-network`.
+
+### 2. Local Testing with Docker Compose
+
+For local testing, simply run:
 ```bash
 docker compose up --build
 ```
+Access the application at [http://localhost](http://localhost) or [https://localhost](https://localhost).
 
-Access the applications:
-- **Frontend Web Application**: [http://localhost:3333](http://localhost:3333)
-- **Go Routing API**: [http://localhost:8080](http://localhost:8080) (`/health`, `/api/v1/route`, `/api/v1/weather/grid`)
-- **Python VPP API & Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+To expose individual microservice ports directly for local development (`:8000`, `:8080`, `:3333`):
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
 
 ---
 
