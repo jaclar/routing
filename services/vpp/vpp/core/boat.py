@@ -1,6 +1,6 @@
 """Boat geometric, hydrostatic, aerodynamic, and physical properties."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 import numpy as np
 from vpp.core.units import G

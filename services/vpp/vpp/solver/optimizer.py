@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import numpy as np
-from scipy.optimize import minimize
 
 from vpp.core.boat import Boat
 from vpp.core.environment import Environment

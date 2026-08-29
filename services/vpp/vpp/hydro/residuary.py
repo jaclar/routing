@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import numpy as np
 from vpp.core.boat import Boat
 from vpp.core.environment import Environment
-from vpp.core.units import G
 
 
 @dataclass

@@ -2,8 +2,6 @@
 
 import os
 import tempfile
-import pytest
-import numpy as np
 from vpp.presets.boats import create_36ft_ketch
 from vpp.solver.vpp_solver import VPPSolver
 from vpp.polars.polar_data import generate_polar_table

@@ -23,8 +23,8 @@ services:
 
   vpp-service:
     build:
-      context: .
-      dockerfile: services/vpp/Dockerfile
+      context: ./services/vpp
+      dockerfile: Dockerfile
     container_name: sailboat-vpp-service
     environment:
       - PORT=8000

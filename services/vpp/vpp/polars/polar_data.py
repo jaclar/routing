@@ -6,7 +6,6 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 from vpp.solver.vpp_solver import VPPPointResult, VPPSolver
-from vpp.core.units import deg_to_rad
 
 
 @dataclass

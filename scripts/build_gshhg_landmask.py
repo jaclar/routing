@@ -92,12 +92,9 @@ def main():
         print(f'Error: Could not find gshhs_h.b in {possible_paths}', file=sys.stderr)
         sys.exit(1)
 
-    output_dir1 = 'services/routing/data'
-    output_dir2 = 'services/routing/landmask/data'
-    os.makedirs(output_dir1, exist_ok=True)
-    os.makedirs(output_dir2, exist_ok=True)
-    output_bin1 = os.path.join(output_dir1, 'gshhg_landmask.bin')
-    output_bin2 = os.path.join(output_dir2, 'gshhg_landmask.bin')
+    output_dir = 'services/routing/landmask/data'
+    os.makedirs(output_dir, exist_ok=True)
+    output_bin = os.path.join(output_dir, 'gshhg_landmask.bin')
 
     print(f'Reading GSHHG high-resolution source: {input_file}')
     polygons = []
@@ -181,23 +178,22 @@ def main():
     print(f'Points reduced from {total_raw_points:,} to {total_simp_points:,} ({(total_simp_points / total_raw_points) * 100:.1f}%).')
 
     # Encode binary format (Little-Endian)
-    for out_path in [output_bin1, output_bin2]:
-        with open(out_path, 'wb') as out:
-            out.write(b'GSHH')
-            out.write(struct.pack('<HI', 1, len(polygons)))
+    with open(output_bin, 'wb') as out:
+        out.write(b'GSHH')
+        out.write(struct.pack('<HI', 1, len(polygons)))
 
-            for p in polygons:
-                name_bytes = p['name'].encode('utf-8')[:255]
-                out.write(struct.pack('<I', p['id']))
-                out.write(struct.pack('<B', len(name_bytes)))
-                out.write(name_bytes)
-                out.write(struct.pack('<4f', p['min_lat'], p['max_lat'], p['min_lon'], p['max_lon']))
-                out.write(struct.pack('<I', len(p['vertices'])))
-                for lat, lon in p['vertices']:
-                    out.write(struct.pack('<2f', lat, lon))
+        for p in polygons:
+            name_bytes = p['name'].encode('utf-8')[:255]
+            out.write(struct.pack('<I', p['id']))
+            out.write(struct.pack('<B', len(name_bytes)))
+            out.write(name_bytes)
+            out.write(struct.pack('<4f', p['min_lat'], p['max_lat'], p['min_lon'], p['max_lon']))
+            out.write(struct.pack('<I', len(p['vertices'])))
+            for lat, lon in p['vertices']:
+                out.write(struct.pack('<2f', lat, lon))
 
-        bin_size = os.path.getsize(out_path)
-        print(f'Successfully wrote binary dataset: {out_path} ({bin_size / 1024 / 1024:.2f} MB)')
+    bin_size = os.path.getsize(output_bin)
+    print(f'Successfully wrote binary dataset: {output_bin} ({bin_size / 1024 / 1024:.2f} MB)')
 
 
 if __name__ == '__main__':

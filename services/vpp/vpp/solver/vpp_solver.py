@@ -1,14 +1,14 @@
 """Top-level Velocity Prediction Program solver."""
 
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
+from typing import Optional, Any
 import numpy as np
 
 from vpp.core.boat import Boat
 from vpp.core.environment import Environment
-from vpp.core.units import kts_to_ms, ms_to_kts, deg_to_rad, rad_to_deg
+from vpp.core.units import kts_to_ms, ms_to_kts, deg_to_rad
 from vpp.aero.sail import SailSet, create_sails_from_rig
-from vpp.solver.optimizer import optimize_sail_trim, OptimizedTrimResult
+from vpp.solver.optimizer import optimize_sail_trim
 
 
 @dataclass

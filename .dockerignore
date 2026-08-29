@@ -1,9 +1,18 @@
 .git
 .venv
+venv
 node_modules
+services/frontend/node_modules
+services/frontend/dist
 dist
 build
 output
+external assets
+assets
+*.b
 __pycache__
+*.pyc
 *.egg-info
 .pytest_cache
+.DS_Store
+

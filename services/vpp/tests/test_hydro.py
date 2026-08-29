@@ -1,12 +1,8 @@
 """Unit tests for hydrodynamic resistance components and hydrostatic stability."""
 
-import pytest
-import numpy as np
 from vpp.core.units import kts_to_ms, deg_to_rad
 from vpp.hydro.friction import compute_frictional_resistance, ittc_57_cf
 from vpp.hydro.residuary import compute_residuary_resistance
-from vpp.hydro.induced import compute_induced_resistance
-from vpp.hydro.heel import compute_heel_resistance
 from vpp.hydro.stability import compute_righting_moments
 from vpp.hydro.hydro_model import compute_hydrodynamics
 from vpp.presets.boats import create_36ft_ketch

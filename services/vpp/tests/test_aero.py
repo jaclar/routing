@@ -6,9 +6,8 @@ from vpp.core.environment import Environment
 from vpp.core.units import deg_to_rad, kts_to_ms
 from vpp.aero.wind import compute_apparent_wind
 from vpp.aero.sail import create_sails_from_rig, SailType
-from vpp.aero.coefficients import compute_sail_coefficients
 from vpp.aero.aero_model import compute_aero_forces
-from vpp.presets.boats import create_36ft_ketch, create_36ft_sloop
+from vpp.presets.boats import create_36ft_ketch
 
 
 def test_apparent_wind_head_to_wind():

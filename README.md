@@ -81,6 +81,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+cd services/vpp
 pip install -e .
 pytest -v
 uvicorn vpp.api.app:app --host 127.0.0.1 --port 8000 --reload

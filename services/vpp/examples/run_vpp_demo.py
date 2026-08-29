@@ -1,6 +1,5 @@
 """Demonstration script: Run VPP on the 36-foot Cruising Ketch and export polars and plots."""
 
-import os
 import sys
 from pathlib import Path
 

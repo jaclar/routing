@@ -1,6 +1,5 @@
 """Integration and unit tests for the FastAPI VPP service."""
 
-import pytest
 from fastapi.testclient import TestClient
 from vpp.api.app import app
 

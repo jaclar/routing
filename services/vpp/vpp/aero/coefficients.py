@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import numpy as np
-from vpp.aero.sail import Sail, SailType
+from vpp.aero.sail import Sail
 
 
 @dataclass

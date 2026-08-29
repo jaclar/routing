@@ -1,9 +1,7 @@
 """Unit tests for the 3-DOF equilibrium solver and trim optimizer."""
 
-import pytest
-import numpy as np
 from vpp.core.units import kts_to_ms, deg_to_rad
-from vpp.presets.boats import create_36ft_ketch, create_36ft_sloop
+from vpp.presets.boats import create_36ft_ketch
 from vpp.solver.vpp_solver import VPPSolver
 from vpp.solver.equilibrium import solve_equilibrium
 from vpp.aero.sail import create_sails_from_rig

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import numpy as np
-from scipy.optimize import root, least_squares
+from scipy.optimize import least_squares
 
 from vpp.core.boat import Boat
 from vpp.core.environment import Environment

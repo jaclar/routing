@@ -8,7 +8,6 @@ from fastapi.responses import PlainTextResponse
 
 from vpp.solver.vpp_solver import VPPSolver
 from vpp.polars.polar_data import PolarTable, compute_vmg_targets, generate_polar_table
-from vpp.polars.exporter import export_to_orc_pol, export_to_csv
 from vpp.polars.plotter import (
     plot_polar_diagram,
     plot_performance_curves,
