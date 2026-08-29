@@ -54,23 +54,23 @@ type IsochroneWave struct {
 
 // RouteResult holds the complete calculated weather routing solution.
 type RouteResult struct {
-	BoatName            string          `json:"boat_name"`
-	StartPoint          geo.Point       `json:"start_point"`
-	DestPoint           geo.Point       `json:"dest_point"`
-	StartTime           time.Time       `json:"start_time"`
-	ArrivalTime         time.Time       `json:"arrival_time"`
-	TotalDurationHours  float64         `json:"total_duration_hours"`
-	TotalDistanceNM     float64         `json:"total_distance_nm"`
-	DirectDistanceNM    float64         `json:"direct_distance_nm"`
-	AverageSpeedKts     float64         `json:"average_speed_kts"`
-	MaxWindEncountered  float64         `json:"max_wind_kts"`
-	TotalTacks          int             `json:"total_tacks"`
-	TotalGybes          int             `json:"total_gybes"`
-	TackPenaltyMinutes  float64         `json:"tack_penalty_minutes"`
-	GybePenaltyMinutes  float64         `json:"gybe_penalty_minutes"`
-	Waypoints           []Waypoint      `json:"waypoints"`
-	Isochrones          []IsochroneWave `json:"isochrones"`
-	DestinationReached  bool            `json:"destination_reached"`
+	BoatName           string          `json:"boat_name"`
+	StartPoint         geo.Point       `json:"start_point"`
+	DestPoint          geo.Point       `json:"dest_point"`
+	StartTime          time.Time       `json:"start_time"`
+	ArrivalTime        time.Time       `json:"arrival_time"`
+	TotalDurationHours float64         `json:"total_duration_hours"`
+	TotalDistanceNM    float64         `json:"total_distance_nm"`
+	DirectDistanceNM   float64         `json:"direct_distance_nm"`
+	AverageSpeedKts    float64         `json:"average_speed_kts"`
+	MaxWindEncountered float64         `json:"max_wind_kts"`
+	TotalTacks         int             `json:"total_tacks"`
+	TotalGybes         int             `json:"total_gybes"`
+	TackPenaltyMinutes float64         `json:"tack_penalty_minutes"`
+	GybePenaltyMinutes float64         `json:"gybe_penalty_minutes"`
+	Waypoints          []Waypoint      `json:"waypoints"`
+	Isochrones         []IsochroneWave `json:"isochrones"`
+	DestinationReached bool            `json:"destination_reached"`
 }
 
 // RouterConfig contains tuning parameters for the isochrone propagation.
@@ -222,13 +222,12 @@ func CalculateOptimalRoute(
 
 		for _, n := range frontier {
 			destBearing := geo.InitialBearing(n.Point, dest)
+			// Sample weather at origin node
+			wind := weatherProvider.GetWind(n.Point.Lat, n.Point.Lon, n.Time)
 
 			// Heading fan from (destBearing - spread) to (destBearing + spread)
 			for dH := -cfg.HeadingSpreadDeg; dH <= cfg.HeadingSpreadDeg; dH += cfg.HeadingStepDeg {
 				heading := geo.NormalizeAngle360(destBearing + dH)
-
-				// Sample weather at origin node
-				wind := weatherProvider.GetWind(n.Point.Lat, n.Point.Lon, n.Time)
 
 				// Calculate True Wind Angle (TWA)
 				twa := math.Abs(geo.NormalizeAngle360(heading - wind.TWD))
