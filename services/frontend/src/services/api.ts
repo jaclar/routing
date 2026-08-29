@@ -25,7 +25,7 @@ export const ROUTE_PRESETS = [
   {
     name: 'Lisbon to Madeira Island (Atlantic Crossing)',
     startName: 'Lisbon (Cascais)',
-    start: { lat: 38.69, lon: -9.42 },
+    start: { lat: 38.67, lon: -9.42 },
     destName: 'Madeira (Funchal)',
     dest: { lat: 32.64, lon: -16.90 },
   },
