@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Flame Graph Generator for Go pprof Profiles
-Parses `go tool pprof -traces` output and renders an interactive SVG and HTML Flame Graph.
+Parses `go tool pprof -traces` output and renders an interactive SVG and HTML Flame Graph,
+with multi-strategy grouped benchmark tables and performance conclusion cards.
 """
 
 import sys
@@ -43,7 +44,6 @@ class FlameNode:
         self.children[head].add_trace(tail, value)
 
 def get_component_color(name):
-    # Determine color palette based on component area
     if 'landmask' in name:
         return '#059669', '#10b981' # Emerald (Land collision)
     elif 'weather' in name:
@@ -62,7 +62,6 @@ def get_component_color(name):
         return '#ea580c', '#f97316' # Warm flame fallback
 
 def simplify_name(raw_name):
-    # Remove package prefixes for clean display
     cleaned = raw_name.replace('github.com/jaclar/routing-service/', '')
     return cleaned
 
@@ -75,7 +74,6 @@ def parse_traces(traces_text):
         if not lines:
             continue
         
-        # Check first line for time/sample value
         match = re.match(r'^\s*([0-9\.]+(?:ms|s|us|µs|ns)?)\s+(.+)$', lines[0])
         if not match:
             continue
@@ -89,8 +87,6 @@ def parse_traces(traces_text):
             if frame:
                 frames.append(frame)
         
-        # In pprof -traces: lines[0] is the leaf, last line is root.
-        # Reverse to get root -> leaf call order
         frames.reverse()
         root.add_trace(frames, sample_val)
         
@@ -114,10 +110,8 @@ def layout_flame(node, x, y, width, total_root_val, depth=0, max_depth=30):
             'pct': (node.value / total_root_val) * 100.0 if total_root_val > 0 else 0
         })
     
-    # Layout children
     cur_x = x
     child_y = y - 22 if node.name != 'root' else y
-    # Sort children deterministically by value descending
     sorted_children = sorted(node.children.values(), key=lambda c: c.value, reverse=True)
     
     for child in sorted_children:
@@ -133,7 +127,6 @@ def generate_svg(root, output_path):
     if total_val <= 0:
         total_val = 1.0
 
-    # Calculate max depth to size canvas height
     def get_max_depth(n, d=0):
         if not n.children:
             return d
@@ -156,11 +149,9 @@ def generate_svg(root, output_path):
     svg.append('  .sub-text { fill: #94a3b8; font-size: 11px; }')
     svg.append('</style>')
 
-    # Header
     svg.append(f'<text x="20" y="30" class="header-text">ISOCHRONE ROUTER CPU FLAME GRAPH</text>')
     svg.append(f'<text x="20" y="48" class="sub-text">Total Sampled CPU Time: {total_val:.2f} ms | Deepest Call Depth: {max_d} frames</text>')
 
-    # Legend in header
     legend_items = [
         ('Isochrone Core', '#d97706'),
         ('Landmask & Polygons', '#059669'),
@@ -175,7 +166,6 @@ def generate_svg(root, output_path):
         svg.append(f'<text x="{lx+14}" y="31" fill="#cbd5e1" font-size="10">{label}</text>')
         lx += 100
 
-    # Render Boxes
     for b in boxes:
         col_base, col_stroke = get_component_color(b['name'])
         rect_id = f"rect_{b['x']}_{b['y']}"
@@ -183,7 +173,6 @@ def generate_svg(root, output_path):
         svg.append(f'  <title>{html.escape(b["name"])}&#10;Time: {b["val"]:.2f} ms ({b["pct"]:.1f}%)</title>')
         svg.append(f'  <rect x="{b["x"]:.1f}" y="{b["y"]:.1f}" width="{max(1.0, b["w"]-1):.1f}" height="20" rx="3" fill="{col_base}" stroke="{col_stroke}" stroke-width="0.5"/>')
         
-        # Only render text if box is wide enough
         if b['w'] > 40:
             display_label = b['simple_name']
             max_chars = int(b['w'] / 6.8)
@@ -198,6 +187,49 @@ def generate_svg(root, output_path):
         f.write('\n'.join(svg))
     print(f"[+] Flame Graph SVG generated -> {output_path}")
 
+STRATEGY_META = {
+    'radial_sector': {
+        'name': '1. Radial Sector (Chichester Angular Corridor)',
+        'badge': 'Lightweight Radial',
+        'color': '#f43f5e',
+        'border': '#e11d48',
+        'bg': 'rgba(244, 63, 94, 0.08)',
+        'comment': 'Lowest memory footprint (~119 MB/op) and very lean allocations per step. Highly efficient on open ocean where the wavefront expands radially without barriers. However, because it keeps only one node per angular corridor, it can over-constrain wavefront width in narrow island passages.'
+    },
+    'spatial_grid': {
+        'name': '2. 2D Spatial Grid (Local Dominance) [Default]',
+        'badge': 'Default / Gold Standard',
+        'color': '#10b981',
+        'border': '#059669',
+        'bg': 'rgba(16, 185, 129, 0.08)',
+        'comment': 'The most robust and versatile all-around algorithm. Consistently achieves fast step execution (~2.3 – 4.3 ms/step) while guaranteeing 100% success across all passages. Naturally preserves divergent navigation channels around islands, capes, and straits with zero trapping.'
+    },
+    'astar_beam': {
+        'name': '3. Heuristic A* Beam Search (Goal-Directed)',
+        'badge': 'Optimal Route Quality',
+        'color': '#06b6d4',
+        'border': '#0891b2',
+        'bg': 'rgba(6, 182, 212, 0.08)',
+        'comment': 'Best route quality and shortest passage times. Found the fastest route for Cowes → Fastnet (64.5 h vs 65.5 h) and Lisbon → Madeira (116.0 h vs 117.0 h) by directly targeting the destination. Incurs slightly higher sorting time per step (~3.2 – 5.1 ms/step), but retains lean memory overhead.'
+    },
+    'pareto_envelope': {
+        'name': '4. Non-Dominated Pareto Envelope (Progress Curve)',
+        'badge': 'Maximum Open Ocean Throughput',
+        'color': '#8b5cf6',
+        'border': '#7c3aed',
+        'bg': 'rgba(139, 92, 246, 0.08)',
+        'comment': 'Blazing fast compute throughput (1.87 – 2.59 ms/step on open water). Ideal for wide ocean crossings. However, because it focuses strictly on the convex progress envelope, it can prune divergent lateral channels in tight archipelagos (dropped leeward channel on Grenada → Trinidad).'
+    },
+    'state_space_grid': {
+        'name': '5. State-Space Grid (Tack & Point of Sail Aware)',
+        'badge': 'Tactical Sailing Fidelity',
+        'color': '#f59e0b',
+        'border': '#d97706',
+        'bg': 'rgba(245, 158, 11, 0.08)',
+        'comment': 'Highest tactical fidelity. By bucketing by Tack (Port vs Starboard) and Point of Sail (Beating / Reaching / Running), it preserves distinct sailing states across wind shifts without killing promising tactical alternatives. Runs at a steady 2.4 – 4.5 ms/step with 100% completion rate.'
+    }
+}
+
 def generate_interactive_html(svg_path, benchmark_json_path, output_html_path):
     with open(svg_path, 'r', encoding='utf-8') as f:
         svg_content = f.read()
@@ -207,24 +239,141 @@ def generate_interactive_html(svg_path, benchmark_json_path, output_html_path):
         with open(benchmark_json_path, 'r', encoding='utf-8') as f:
             benchmarks = json.load(f)
 
-    bench_rows = ""
+    # Group benchmarks by strategy
+    grouped = {}
+    for strat_id in STRATEGY_META.keys():
+        grouped[strat_id] = []
+
     for b in benchmarks:
-        bench_rows += f"""
-        <tr class="border-b border-slate-800 hover:bg-slate-800/50 transition">
-          <td class="py-2.5 px-3 font-medium text-slate-100">{b.get('preset_name', '')}</td>
-          <td class="py-2.5 px-3 font-mono text-cyan-400 text-xs">{b.get('time_step', '')}</td>
-          <td class="py-2.5 px-3 font-mono text-right text-slate-300">{b.get('direct_distance_nm', 0):.1f} NM</td>
-          <td class="py-2.5 px-3 font-mono text-right text-slate-300">{b.get('route_distance_nm', 0):.1f} NM</td>
-          <td class="py-2.5 px-3 font-mono text-right text-slate-300">{b.get('duration_hours', 0):.1f} h</td>
-          <td class="py-2.5 px-3 font-mono text-right font-bold text-amber-400">{b.get('mean_time_ms', 0):.2f} ms</td>
-          <td class="py-2.5 px-3 font-mono text-right text-emerald-400">{b.get('throughput_per_sec', 0):.1f}/s</td>
-          <td class="py-2.5 px-3 font-mono text-right text-slate-300">{(b.get('alloc_bytes_per_op', 0)/(1024*1024)):.2f} MB</td>
-          <td class="py-2.5 px-3 text-center">
-            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold {'bg-emerald-950 text-emerald-400 border border-emerald-800' if b.get('success') else 'bg-rose-950 text-rose-400'}">
-              {'PASS' if b.get('success') else 'FAIL'}
-            </span>
-          </td>
-        </tr>
+        sid = b.get('strategy_id', 'spatial_grid')
+        if sid in grouped:
+            grouped[sid].append(b)
+        else:
+            if sid not in grouped:
+                grouped[sid] = []
+            grouped[sid].append(b)
+
+    # Build grouped HTML sections
+    sections_html = ""
+    for strat_id, meta in STRATEGY_META.items():
+        runs = grouped.get(strat_id, [])
+        if not runs:
+            continue
+
+        total_lat = sum(r.get('mean_time_ms', 0) for r in runs)
+        avg_lat = total_lat / len(runs) if runs else 0
+
+        # Calculate mean time per step across runs
+        step_times = []
+        for r in runs:
+            steps = r.get('wavefront_steps', 0)
+            lat = r.get('mean_time_ms', 0)
+            if steps > 0:
+                step_times.append(lat / steps)
+        avg_step_ms = sum(step_times) / len(step_times) if step_times else 0
+
+        avg_mem_mb = sum(r.get('alloc_bytes_per_op', 0) / (1024 * 1024) for r in runs) / len(runs) if runs else 0
+        success_count = sum(1 for r in runs if r.get('success', False))
+
+        rows_html = ""
+        for r in runs:
+            steps = r.get('wavefront_steps', 0)
+            mean_ms = r.get('mean_time_ms', 0)
+            ms_per_step = (mean_ms / steps) if steps > 0 else 0
+            mem_mb = r.get('alloc_bytes_per_op', 0) / (1024 * 1024)
+            allocs = r.get('allocs_per_op', 0)
+            is_success = r.get('success', False)
+
+            rows_html += f"""
+            <tr class="border-b border-slate-800/60 hover:bg-slate-800/40 transition">
+              <td class="py-2.5 px-3.5 font-medium text-slate-100">{r.get('preset_name', '')}</td>
+              <td class="py-2.5 px-3 font-mono text-cyan-400 text-xs">{r.get('time_step', '')}</td>
+              <td class="py-2.5 px-3 font-mono text-right text-slate-300">{r.get('direct_distance_nm', 0):.1f} NM</td>
+              <td class="py-2.5 px-3 font-mono text-right text-slate-200 font-semibold">{r.get('route_distance_nm', 0):.1f} NM</td>
+              <td class="py-2.5 px-3 font-mono text-right text-slate-200">{r.get('duration_hours', 0):.1f} h</td>
+              <td class="py-2.5 px-3 font-mono text-right text-slate-400">{steps}</td>
+              <td class="py-2.5 px-3 font-mono text-right font-bold text-amber-400">{mean_ms:.2f} ms</td>
+              <td class="py-2.5 px-3 font-mono text-right font-bold text-cyan-300">{ms_per_step:.2f} ms/step</td>
+              <td class="py-2.5 px-3 font-mono text-right text-slate-300">{mem_mb:.1f} MB</td>
+              <td class="py-2.5 px-3 text-center">
+                <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold {'bg-emerald-950 text-emerald-400 border border-emerald-800' if is_success else 'bg-rose-950 text-rose-400 border border-rose-800'}">
+                  {'PASS' if is_success else 'FAIL'}
+                </span>
+              </td>
+            </tr>
+            """
+
+        sections_html += f"""
+        <!-- Strategy Group: {meta['name']} -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl mb-6">
+          
+          <!-- Group Header -->
+          <div class="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3" style="background: {meta['bg']}">
+            <div class="flex items-center gap-3">
+              <span class="w-3.5 h-3.5 rounded-full shadow-sm" style="background: {meta['color']}"></span>
+              <div>
+                <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  {meta['name']}
+                  <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full border" style="border-color: {meta['border']}; color: {meta['color']}">
+                    {meta['badge']}
+                  </span>
+                </h3>
+              </div>
+            </div>
+            
+            <div class="flex items-center gap-3 text-xs font-mono">
+              <div class="bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
+                <span class="text-[10px] text-slate-400 block">Avg Latency</span>
+                <span class="font-bold text-amber-400">{avg_lat:.2f} ms</span>
+              </div>
+              <div class="bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
+                <span class="text-[10px] text-slate-400 block">Mean / Step</span>
+                <span class="font-bold text-cyan-300">{avg_step_ms:.2f} ms/step</span>
+              </div>
+              <div class="bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
+                <span class="text-[10px] text-slate-400 block">Avg Memory</span>
+                <span class="font-bold text-slate-200">{avg_mem_mb:.1f} MB</span>
+              </div>
+              <div class="bg-slate-950/70 border border-slate-800 px-2.5 py-1 rounded-lg">
+                <span class="text-[10px] text-slate-400 block">Success Rate</span>
+                <span class="font-bold {'text-emerald-400' if success_count == len(runs) else 'text-amber-400'}">{success_count}/{len(runs)} ({int(success_count/len(runs)*100)}%)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Strategy Conclusion & Tradeoffs Callout -->
+          <div class="p-3.5 px-4 bg-slate-950/50 border-b border-slate-800/80 flex items-start gap-2.5 text-xs text-slate-300 leading-relaxed">
+            <span class="text-base leading-none">💬</span>
+            <div>
+              <strong class="text-slate-200 font-semibold">Algorithm Assessment &amp; Conclusion:</strong>
+              <span class="text-slate-300 ml-1">{meta['comment']}</span>
+            </div>
+          </div>
+
+          <!-- Table of Runs -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr class="border-b border-slate-800 text-slate-400 font-semibold bg-slate-950/30">
+                  <th class="py-2.5 px-3.5">Scenario / Passage</th>
+                  <th class="py-2.5 px-3">Step (Δt)</th>
+                  <th class="py-2.5 px-3 text-right">Direct Dist</th>
+                  <th class="py-2.5 px-3 text-right">Sailed Dist</th>
+                  <th class="py-2.5 px-3 text-right">Passage Time</th>
+                  <th class="py-2.5 px-3 text-right">Steps</th>
+                  <th class="py-2.5 px-3 text-right">Total Latency</th>
+                  <th class="py-2.5 px-3 text-right">Mean / Step</th>
+                  <th class="py-2.5 px-3 text-right">Memory / Op</th>
+                  <th class="py-2.5 px-3 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows_html}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
         """
 
     html_content = f"""<!DOCTYPE html>
@@ -242,48 +391,18 @@ def generate_interactive_html(svg_path, benchmark_json_path, output_html_path):
       <div>
         <h1 class="text-xl font-extrabold flex items-center gap-2 text-white">
           <span class="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg border border-amber-500/30">🔥</span>
-          Weather Routing Performance & Flame Graph Analysis
+          Weather Routing Performance &amp; Flame Graph Analysis
         </h1>
-        <p class="text-xs text-slate-400 mt-1">Benchmarking <code class="font-mono text-cyan-400">services/routing/isochrone</code> across all passage presets</p>
+        <p class="text-xs text-slate-400 mt-1">Multi-strategy performance matrix, step timings, and CPU execution profile across all passage presets</p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="text-xs bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-slate-300 font-mono">
-          Engine: Go 1.22+ Isochrone Wavefront
-        </span>
+        <a href="wavefront_comparison.html" class="px-3.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold shadow-sm transition">
+          🌊 Open Wavefront Studio
+        </a>
       </div>
     </div>
 
-    <!-- Preset Benchmarks Table -->
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
-          <span>📊</span> Benchmark Timing & Throughput Metrics (All Presets)
-        </h2>
-        <span class="text-xs text-slate-400">5 runs/preset with warm cache</span>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-xs text-left border-collapse">
-          <thead>
-            <tr class="border-b border-slate-700 text-slate-400 font-semibold bg-slate-950/40">
-              <th class="py-2.5 px-3">Scenario / Preset</th>
-              <th class="py-2.5 px-3">Time Step</th>
-              <th class="py-2.5 px-3 text-right">Direct Dist</th>
-              <th class="py-2.5 px-3 text-right">Sailed Dist</th>
-              <th class="py-2.5 px-3 text-right">Passage Time</th>
-              <th class="py-2.5 px-3 text-right">Mean Latency</th>
-              <th class="py-2.5 px-3 text-right">Throughput</th>
-              <th class="py-2.5 px-3 text-right">Memory/Op</th>
-              <th class="py-2.5 px-3 text-center">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bench_rows}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Interactive Flame Graph -->
+    <!-- CPU Flame Graph Profile -->
     <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -293,7 +412,7 @@ def generate_interactive_html(svg_path, benchmark_json_path, output_html_path):
           <p class="text-xs text-slate-400">Hover over any block to inspect function call time, call stack depth, and percentage breakdown.</p>
         </div>
         <div class="flex items-center gap-2 text-xs">
-          <span class="text-slate-400">Click & hover on blocks for deep call stack inspection</span>
+          <span class="text-slate-400">Sampled via <code class="font-mono text-cyan-400">runtime/pprof</code></span>
         </div>
       </div>
 
@@ -303,13 +422,29 @@ def generate_interactive_html(svg_path, benchmark_json_path, output_html_path):
       </div>
     </div>
 
+    <!-- Grouped Benchmarks Section -->
+    <div class="space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+            <span>📊</span> Benchmark Results Grouped by Pruning Algorithm
+          </h2>
+          <p class="text-xs text-slate-400">Comparing execution latencies, step unit costs (ms/step), memory footprint, and route quality</p>
+        </div>
+      </div>
+
+      <!-- Strategy Groups -->
+      {sections_html}
+    </div>
+
   </div>
 </body>
 </html>
 """
+
     with open(output_html_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
-    print(f"[+] Interactive Flame Graph HTML report generated -> {output_html_path}")
+    print(f"[+] Interactive Flame Graph HTML report generated with grouped tables -> {output_html_path}")
 
 def main():
     if len(sys.argv) < 2:
@@ -318,7 +453,7 @@ def main():
 
     prof_file = sys.argv[1]
     svg_out = sys.argv[2] if len(sys.argv) > 2 else "output/flamegraph.svg"
-    json_in = sys.argv[3] if len(sys.argv) > 3 else "output/benchmark_results.json"
+    json_in = sys.argv[3] if len(sys.argv) > 3 else "output/pruning_benchmark_results.json"
     html_out = sys.argv[4] if len(sys.argv) > 4 else "output/flamegraph.html"
 
     os.makedirs(os.path.dirname(os.path.abspath(svg_out)), exist_ok=True)

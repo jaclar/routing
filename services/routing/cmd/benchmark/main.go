@@ -32,7 +32,16 @@ type PresetConfig struct {
 	BoatName  string        `json:"boat_name"`
 }
 
+type StrategyInfo struct {
+	ID          string                    `json:"id"`
+	Name        string                    `json:"name"`
+	Strategy    isochrone.PruningStrategy `json:"strategy"`
+	Description string                    `json:"description"`
+}
+
 type BenchmarkResult struct {
+	StrategyID       string    `json:"strategy_id"`
+	StrategyName     string    `json:"strategy_name"`
 	PresetID         string    `json:"preset_id"`
 	PresetName       string    `json:"preset_name"`
 	BoatName         string    `json:"boat_name"`
@@ -55,6 +64,30 @@ type BenchmarkResult struct {
 	AllocBytesPerOp  uint64    `json:"alloc_bytes_per_op"`
 	AllocsPerOp      uint64    `json:"allocs_per_op"`
 	Success          bool      `json:"success"`
+}
+
+type WavefrontExport struct {
+	PresetID     string                    `json:"preset_id"`
+	PresetName   string                    `json:"preset_name"`
+	Start        geo.Point                 `json:"start"`
+	Dest         geo.Point                 `json:"dest"`
+	TimeStep     string                    `json:"time_step"`
+	DirectDistNM float64                   `json:"direct_distance_nm"`
+	Runs         map[string]StrategyOutput `json:"runs"`
+}
+
+type StrategyOutput struct {
+	StrategyID    string                    `json:"strategy_id"`
+	StrategyName  string                    `json:"strategy_name"`
+	TotalDistance float64                   `json:"total_distance_nm"`
+	TotalDuration float64                   `json:"total_duration_hours"`
+	AverageSpeed  float64                   `json:"average_speed_kts"`
+	TotalTacks    int                       `json:"total_tacks"`
+	TotalGybes    int                       `json:"total_gybes"`
+	Reached       bool                      `json:"destination_reached"`
+	Waypoints     []isochrone.Waypoint      `json:"waypoints"`
+	Isochrones    []isochrone.IsochroneWave `json:"isochrones"`
+	MeanTimeMs    float64                   `json:"mean_time_ms"`
 }
 
 func getAllPresets() []PresetConfig {
@@ -117,18 +150,55 @@ func getAllPresets() []PresetConfig {
 	}
 }
 
+func getAllStrategies() []StrategyInfo {
+	return []StrategyInfo{
+		{
+			ID:          "radial_sector",
+			Name:        "1. Radial Sector",
+			Strategy:    isochrone.PruningRadialSector,
+			Description: "Classic Chichester angular sector bucketing",
+		},
+		{
+			ID:          "spatial_grid",
+			Name:        "2. 2D Spatial Grid",
+			Strategy:    isochrone.PruningSpatialGrid,
+			Description: "2D Local Spatial Dominance (Default)",
+		},
+		{
+			ID:          "astar_beam",
+			Name:        "3. A* Beam Search",
+			Strategy:    isochrone.PruningAStarBeam,
+			Description: "Heuristic A* cost sorting with spatial diversity",
+		},
+		{
+			ID:          "pareto_envelope",
+			Name:        "4. Pareto Envelope",
+			Strategy:    isochrone.PruningParetoEnvelope,
+			Description: "Non-dominated progress envelope along course",
+		},
+		{
+			ID:          "state_space_grid",
+			Name:        "5. State-Space Grid",
+			Strategy:    isochrone.PruningStateSpaceGrid,
+			Description: "Grid bucketing with Tack and Point of Sail modes",
+		},
+	}
+}
+
 func main() {
 	cpuProfile := flag.String("cpuprofile", "", "Write cpu profile to file")
 	memProfile := flag.String("memprofile", "", "Write memory profile to file")
 	presetFilter := flag.String("preset", "all", "Preset ID to benchmark or 'all'")
+	strategyFilter := flag.String("strategy", "all", "Pruning strategy ID to benchmark or 'all'")
 	iterations := flag.Int("iterations", 5, "Number of benchmark iterations per preset")
 	warmup := flag.Int("warmup", 1, "Number of warmup iterations per preset")
 	jsonOutput := flag.String("json", "", "Save JSON metrics to file")
+	wavefrontOutput := flag.String("wavefronts", "", "Save wavefront export data to JSON file")
 	flag.Parse()
 
-	log.Println("================================================================")
-	log.Println("     ISOCHRONE ROUTING BENCHMARK & PERFORMANCE SUITE            ")
-	log.Println("================================================================")
+	log.Println("==================================================================")
+	log.Println("     ISOCHRONE ROUTING PRUNING STRATEGIES BENCHMARK SUITE         ")
+	log.Println("==================================================================")
 
 	// CPU profiling if requested
 	if *cpuProfile != "" {
@@ -165,127 +235,168 @@ func main() {
 			}
 		}
 		if len(selectedPresets) == 0 {
-			log.Fatalf("Unknown preset ID '%s'. Valid options: grenada_trinidad, cowes_fastnet, newport_bermuda, lisbon_madeira, sf_hawaii, all", *presetFilter)
+			log.Fatalf("Unknown preset ID '%s'", *presetFilter)
 		}
 	}
 
-	results := make([]BenchmarkResult, 0, len(selectedPresets))
+	allStrats := getAllStrategies()
+	var selectedStrats []StrategyInfo
+
+	if *strategyFilter == "all" || *strategyFilter == "" {
+		selectedStrats = allStrats
+	} else {
+		for _, s := range allStrats {
+			if s.ID == *strategyFilter {
+				selectedStrats = append(selectedStrats, s)
+			}
+		}
+		if len(selectedStrats) == 0 {
+			log.Fatalf("Unknown strategy ID '%s'", *strategyFilter)
+		}
+	}
+
+	results := make([]BenchmarkResult, 0)
+	wavefrontExports := make(map[string]WavefrontExport)
 
 	for _, preset := range selectedPresets {
-		log.Printf("\n--> Benchmarking Preset: %s (%s)", preset.Name, preset.TimeStep)
+		log.Printf("\n==================================================================")
+		log.Printf(">>> SCENARIO: %s (TimeStep: %s)", preset.Name, preset.TimeStep)
+		log.Printf("==================================================================")
 		directNM := geo.DistanceNM(preset.Start, preset.Dest)
-
 		polarTable := polar.GetPresetPolar(preset.BoatID)
-		cfg := isochrone.DefaultRouterConfig()
-		cfg.TimeStep = preset.TimeStep
 
-		// Warmup runs
-		for w := 0; w < *warmup; w++ {
-			_, err := isochrone.CalculateOptimalRoute(
-				preset.Start,
-				preset.Dest,
-				startTime,
-				polarTable,
-				weatherEngine,
-				landMask,
-				cfg,
-			)
-			if err != nil {
-				log.Printf("Warning: warmup run failed: %v", err)
+		wfExport := WavefrontExport{
+			PresetID:     preset.ID,
+			PresetName:   preset.Name,
+			Start:        preset.Start,
+			Dest:         preset.Dest,
+			TimeStep:     preset.TimeStep.String(),
+			DirectDistNM: directNM,
+			Runs:         make(map[string]StrategyOutput),
+		}
+
+		for _, strat := range selectedStrats {
+			cfg := isochrone.DefaultRouterConfig()
+			cfg.TimeStep = preset.TimeStep
+			cfg.PruningStrategy = strat.Strategy
+
+			// Warmup runs
+			for w := 0; w < *warmup; w++ {
+				_, _ = isochrone.CalculateOptimalRoute(
+					preset.Start,
+					preset.Dest,
+					startTime,
+					polarTable,
+					weatherEngine,
+					landMask,
+					cfg,
+				)
 			}
-		}
 
-		// Timed iterations
-		durations := make([]time.Duration, *iterations)
-		var lastResult *isochrone.RouteResult
-		var memStatsBefore, memStatsAfter runtime.MemStats
+			// Timed iterations
+			durations := make([]time.Duration, *iterations)
+			var lastResult *isochrone.RouteResult
+			var memStatsBefore, memStatsAfter runtime.MemStats
 
-		runtime.GC()
-		runtime.ReadMemStats(&memStatsBefore)
+			runtime.GC()
+			runtime.ReadMemStats(&memStatsBefore)
 
-		for i := 0; i < *iterations; i++ {
-			iterStart := time.Now()
-			route, err := isochrone.CalculateOptimalRoute(
-				preset.Start,
-				preset.Dest,
-				startTime,
-				polarTable,
-				weatherEngine,
-				landMask,
-				cfg,
-			)
-			durations[i] = time.Since(iterStart)
-			if err != nil {
-				log.Printf("Error during iteration %d: %v", i+1, err)
-			} else {
-				lastResult = route
+			for i := 0; i < *iterations; i++ {
+				iterStart := time.Now()
+				route, err := isochrone.CalculateOptimalRoute(
+					preset.Start,
+					preset.Dest,
+					startTime,
+					polarTable,
+					weatherEngine,
+					landMask,
+					cfg,
+				)
+				durations[i] = time.Since(iterStart)
+				if err == nil {
+					lastResult = route
+				}
 			}
+
+			runtime.ReadMemStats(&memStatsAfter)
+
+			// Calculate statistics
+			timesMs := make([]float64, *iterations)
+			var sumMs float64
+			for i, d := range durations {
+				ms := float64(d.Microseconds()) / 1000.0
+				timesMs[i] = ms
+				sumMs += ms
+			}
+			sort.Float64s(timesMs)
+
+			minMs := timesMs[0]
+			maxMs := timesMs[len(timesMs)-1]
+			meanMs := sumMs / float64(*iterations)
+			medianMs := timesMs[len(timesMs)/2]
+
+			var varianceSum float64
+			for _, ms := range timesMs {
+				diff := ms - meanMs
+				varianceSum += diff * diff
+			}
+			stdDevMs := math.Sqrt(varianceSum / float64(*iterations))
+			throughput := 1000.0 / meanMs
+
+			allocBytes := (memStatsAfter.TotalAlloc - memStatsBefore.TotalAlloc) / uint64(*iterations)
+			allocCount := (memStatsAfter.Mallocs - memStatsBefore.Mallocs) / uint64(*iterations)
+
+			res := BenchmarkResult{
+				StrategyID:       strat.ID,
+				StrategyName:     strat.Name,
+				PresetID:         preset.ID,
+				PresetName:       preset.Name,
+				BoatName:         preset.BoatName,
+				TimeStepStr:      preset.TimeStep.String(),
+				DirectDistanceNM: directNM,
+				Iterations:       *iterations,
+				MinTimeMs:        minMs,
+				MeanTimeMs:       meanMs,
+				MedianTimeMs:     medianMs,
+				MaxTimeMs:        maxMs,
+				StdDevMs:         stdDevMs,
+				ThroughputPerSec: throughput,
+				AllocBytesPerOp:  allocBytes,
+				AllocsPerOp:      allocCount,
+				Success:          lastResult != nil && lastResult.DestinationReached,
+			}
+
+			if lastResult != nil {
+				res.RouteDistanceNM = lastResult.TotalDistanceNM
+				res.DurationHours = lastResult.TotalDurationHours
+				res.WaypointsCount = len(lastResult.Waypoints)
+				res.WavefrontSteps = len(lastResult.Isochrones)
+				res.TotalTacks = lastResult.TotalTacks
+				res.TotalGybes = lastResult.TotalGybes
+				res.MaxWindKts = lastResult.MaxWindEncountered
+
+				wfExport.Runs[strat.ID] = StrategyOutput{
+					StrategyID:    strat.ID,
+					StrategyName:  strat.Name,
+					TotalDistance: lastResult.TotalDistanceNM,
+					TotalDuration: lastResult.TotalDurationHours,
+					AverageSpeed:  lastResult.AverageSpeedKts,
+					TotalTacks:    lastResult.TotalTacks,
+					TotalGybes:    lastResult.TotalGybes,
+					Reached:       lastResult.DestinationReached,
+					Waypoints:     lastResult.Waypoints,
+					Isochrones:    lastResult.Isochrones,
+					MeanTimeMs:    meanMs,
+				}
+			}
+
+			results = append(results, res)
+
+			log.Printf("  [%-18s] Mean: %6.2f ms | Dist: %6.1f NM | Time: %5.1f h | Allocs: %7d | Reached: %v",
+				strat.Name, meanMs, res.RouteDistanceNM, res.DurationHours, allocCount, res.Success)
 		}
 
-		runtime.ReadMemStats(&memStatsAfter)
-
-		// Calculate statistics
-		timesMs := make([]float64, *iterations)
-		var sumMs float64
-		for i, d := range durations {
-			ms := float64(d.Microseconds()) / 1000.0
-			timesMs[i] = ms
-			sumMs += ms
-		}
-		sort.Float64s(timesMs)
-
-		minMs := timesMs[0]
-		maxMs := timesMs[len(timesMs)-1]
-		meanMs := sumMs / float64(*iterations)
-		medianMs := timesMs[len(timesMs)/2]
-
-		var varianceSum float64
-		for _, ms := range timesMs {
-			diff := ms - meanMs
-			varianceSum += diff * diff
-		}
-		stdDevMs := math.Sqrt(varianceSum / float64(*iterations))
-		throughput := 1000.0 / meanMs
-
-		allocBytes := (memStatsAfter.TotalAlloc - memStatsBefore.TotalAlloc) / uint64(*iterations)
-		allocCount := (memStatsAfter.Mallocs - memStatsBefore.Mallocs) / uint64(*iterations)
-
-		res := BenchmarkResult{
-			PresetID:         preset.ID,
-			PresetName:       preset.Name,
-			BoatName:         preset.BoatName,
-			TimeStepStr:      preset.TimeStep.String(),
-			DirectDistanceNM: directNM,
-			Iterations:       *iterations,
-			MinTimeMs:        minMs,
-			MeanTimeMs:       meanMs,
-			MedianTimeMs:     medianMs,
-			MaxTimeMs:        maxMs,
-			StdDevMs:         stdDevMs,
-			ThroughputPerSec: throughput,
-			AllocBytesPerOp:  allocBytes,
-			AllocsPerOp:      allocCount,
-			Success:          lastResult != nil && lastResult.DestinationReached,
-		}
-
-		if lastResult != nil {
-			res.RouteDistanceNM = lastResult.TotalDistanceNM
-			res.DurationHours = lastResult.TotalDurationHours
-			res.WaypointsCount = len(lastResult.Waypoints)
-			res.WavefrontSteps = len(lastResult.Isochrones)
-			res.TotalTacks = lastResult.TotalTacks
-			res.TotalGybes = lastResult.TotalGybes
-			res.MaxWindKts = lastResult.MaxWindEncountered
-		}
-
-		results = append(results, res)
-
-		log.Printf("    Mean: %.2f ms | Min: %.2f ms | Median: %.2f ms | Max: %.2f ms (±%.2f ms)",
-			meanMs, minMs, medianMs, maxMs, stdDevMs)
-		log.Printf("    Throughput: %.1f routes/sec | Memory: %.2f MB/op | Allocs: %d/op",
-			throughput, float64(allocBytes)/(1024*1024), allocCount)
-		log.Printf("    Route: %.1f NM in %.1f h | Waypoints: %d | Isochrone Waves: %d | Tacks: %d",
-			res.RouteDistanceNM, res.DurationHours, res.WaypointsCount, res.WavefrontSteps, res.TotalTacks)
+		wavefrontExports[preset.ID] = wfExport
 	}
 
 	// Memory profile if requested
@@ -303,7 +414,7 @@ func main() {
 	}
 
 	// Print Summary Table
-	fmt.Println("\n" + formatSummaryTable(results))
+	fmt.Println("\n" + formatMatrixSummaryTable(results))
 
 	// Save JSON if requested
 	if *jsonOutput != "" {
@@ -316,27 +427,43 @@ func main() {
 		}
 		log.Printf("JSON benchmark metrics saved -> %s", *jsonOutput)
 	}
+
+	// Save Wavefront export data if requested
+	if *wavefrontOutput != "" {
+		data, err := json.MarshalIndent(wavefrontExports, "", "  ")
+		if err != nil {
+			log.Fatalf("Failed to marshal wavefronts json: %v", err)
+		}
+		if err := os.WriteFile(*wavefrontOutput, data, 0644); err != nil {
+			log.Fatalf("Failed to write wavefronts json file: %v", err)
+		}
+		log.Printf("Wavefront export data saved -> %s", *wavefrontOutput)
+	}
 }
 
-func formatSummaryTable(results []BenchmarkResult) string {
+func formatMatrixSummaryTable(results []BenchmarkResult) string {
 	var out string
-	out += "========================================================================================================\n"
-	out += fmt.Sprintf("%-28s | %-6s | %-9s | %-9s | %-9s | %-8s | %-10s | %-9s\n",
-		"Preset Scenario", "Step", "Direct NM", "Route NM", "Time (h)", "Mean ms", "Throughput", "Memory/Op")
-	out += "-----------------------------+--------+-----------+-----------+-----------+----------+------------+----------\n"
+	out += "========================================================================================================================\n"
+	out += fmt.Sprintf("%-22s | %-19s | %-9s | %-9s | %-9s | %-9s | %-10s | %-7s\n",
+		"Scenario", "Pruning Strategy", "Mean ms", "Route NM", "Time (h)", "Memory/Op", "Allocs/Op", "Status")
+	out += "-----------------------+---------------------+-----------+-----------+-----------+-----------+------------+---------\n"
 	for _, r := range results {
-		out += fmt.Sprintf("%-28s | %-6s | %8.1f  | %8.1f  | %8.1f  | %7.2fms | %7.1f/s  | %6.2f MB\n",
-			truncate(r.PresetName, 28),
-			r.TimeStepStr,
-			r.DirectDistanceNM,
+		status := "PASS"
+		if !r.Success {
+			status = "FAIL"
+		}
+		out += fmt.Sprintf("%-22s | %-19s | %7.2fms | %7.1fNM | %7.1fh  | %6.2f MB | %9d  | %-7s\n",
+			truncate(r.PresetName, 22),
+			r.StrategyName,
+			r.MeanTimeMs,
 			r.RouteDistanceNM,
 			r.DurationHours,
-			r.MeanTimeMs,
-			r.ThroughputPerSec,
 			float64(r.AllocBytesPerOp)/(1024*1024),
+			r.AllocsPerOp,
+			status,
 		)
 	}
-	out += "========================================================================================================\n"
+	out += "========================================================================================================================\n"
 	return out
 }
 

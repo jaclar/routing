@@ -3,7 +3,6 @@ package isochrone
 import (
 	"fmt"
 	"math"
-	"sort"
 	"time"
 
 	"github.com/jaclar/routing-service/geo"
@@ -83,6 +82,7 @@ type RouterConfig struct {
 	MaxFrontierNodes   int
 	TackPenaltyMinutes float64
 	GybePenaltyMinutes float64
+	PruningStrategy    PruningStrategy
 }
 
 func DefaultRouterConfig() RouterConfig {
@@ -95,6 +95,7 @@ func DefaultRouterConfig() RouterConfig {
 		MaxFrontierNodes:   400,   // Spatial frontier node budget
 		TackPenaltyMinutes: 5.0,   // Default 5 minutes lost per tack for cruisers
 		GybePenaltyMinutes: 8.0,   // Default 8 minutes lost per gybe for cruisers
+		PruningStrategy:    PruningSpatialGrid,
 	}
 }
 
@@ -154,6 +155,10 @@ func CalculateOptimalRoute(
 	stepDistanceEstMeters := (cfg.TimeStep.Hours() * 6.5) * geo.NMToMeters
 	arrivalRadiusMeters := math.Max(800.0, math.Min(stepDistanceEstMeters*1.2, cfg.ArrivalRadiusNM*geo.NMToMeters))
 
+	// Dynamic maximum search duration cap based on distance
+	estPassageHours := (directDistNM / 4.0) * 3.0
+	maxSearchHours := math.Min(cfg.MaxDurationHours, math.Max(36.0, estPassageHours))
+
 	// Root start node
 	initWind := weatherProvider.GetWind(start.Lat, start.Lon, startTime)
 	initBearing := geo.InitialBearing(start, dest)
@@ -186,7 +191,7 @@ func CalculateOptimalRoute(
 	step := 0
 	currentTime := startTime
 
-	for len(frontier) > 0 && currentTime.Sub(startTime).Hours() < cfg.MaxDurationHours {
+	for len(frontier) > 0 && currentTime.Sub(startTime).Hours() < maxSearchHours {
 		step++
 		currentTime = currentTime.Add(cfg.TimeStep)
 
@@ -298,8 +303,8 @@ func CalculateOptimalRoute(
 			break
 		}
 
-		// 4. Prune candidates using 2D Local Spatial Grid Dominance to keep divergent navigational channels
-		frontier = pruneFrontier(candidates, start, dest, cfg.MaxFrontierNodes, cfg.TimeStep)
+		// 4. Prune candidates using selected Pruning Strategy
+		frontier = pruneFrontier(candidates, start, dest, cfg.MaxFrontierNodes, cfg.TimeStep, cfg.PruningStrategy, startTime)
 	}
 
 	// 5. Select terminal node and backtrack path
@@ -346,67 +351,6 @@ func CalculateOptimalRoute(
 		Isochrones:         isochrones,
 		DestinationReached: destReached,
 	}, nil
-}
-
-// pruneFrontier uses 2D Local Spatial Dominance to deduplicate overlapping wavefront nodes
-// in the same geographic cell while preserving multiple divergent routing branches
-// through complex channels (e.g. Solent vs Southampton), straits, and around headlands.
-func pruneFrontier(candidates []*Node, start, dest geo.Point, maxNodes int, timeStep time.Duration) []*Node {
-	if len(candidates) <= 20 {
-		return candidates
-	}
-
-	// Dynamic spatial cell size scaled with the step distance
-	// (e.g. ~1.2 NM for 5-min steps, ~2.5 NM for 30-min steps, ~7 NM for 2-hr steps)
-	stepDistEstNM := math.Max(0.8, timeStep.Hours()*6.5)
-	cellSizeDeg := math.Max(0.015, (stepDistEstNM/60.0)*0.75)
-
-	type spatialKey struct {
-		latIdx  int
-		lonIdx  int
-		quadIdx int
-	}
-
-	bucketMap := make(map[spatialKey]*Node, len(candidates))
-
-	for _, cand := range candidates {
-		latIdx := int(math.Floor((cand.Point.Lat + 90.0) / cellSizeDeg))
-		lonIdx := int(math.Floor((cand.Point.Lon + 180.0) / cellSizeDeg))
-		quadIdx := int(math.Floor(cand.Heading/90.0)) % 4
-		if quadIdx < 0 {
-			quadIdx += 4
-		}
-
-		key := spatialKey{latIdx: latIdx, lonIdx: lonIdx, quadIdx: quadIdx}
-
-		existing, found := bucketMap[key]
-		if !found || cand.DistanceToDest < existing.DistanceToDest {
-			bucketMap[key] = cand
-		}
-	}
-
-	survivors := make([]*Node, 0, len(bucketMap))
-	for _, node := range bucketMap {
-		survivors = append(survivors, node)
-	}
-
-	// If total survivors exceed max budget, keep the best nodes closest to destination
-	if len(survivors) > maxNodes && maxNodes > 0 {
-		sort.Slice(survivors, func(i, j int) bool {
-			return survivors[i].DistanceToDest < survivors[j].DistanceToDest
-		})
-		survivors = survivors[:maxNodes]
-	}
-
-	// Sort survivors by longitude and latitude for clean wavefront visualization
-	sort.Slice(survivors, func(i, j int) bool {
-		if survivors[i].Point.Lon != survivors[j].Point.Lon {
-			return survivors[i].Point.Lon < survivors[j].Point.Lon
-		}
-		return survivors[i].Point.Lat < survivors[j].Point.Lat
-	})
-
-	return survivors
 }
 
 func backtrackRoute(terminal *Node) []Waypoint {

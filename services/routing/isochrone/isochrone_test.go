@@ -287,3 +287,55 @@ func TestCowesToFastnetRock(t *testing.T) {
 	}
 }
 
+func TestPruningStrategiesComparison(t *testing.T) {
+	start := geo.Point{Lat: 41.40, Lon: -71.35} // Newport
+	dest := geo.Point{Lat: 32.40, Lon: -64.55}  // Bermuda
+
+	startTime := time.Now().UTC()
+	polarTable := polar.Get36ftKetchPolar()
+	weatherEngine := weather.NewRealisticGFSEngine(startTime)
+	landMask := landmask.NewGSHHGLandMask()
+
+	strategies := []struct {
+		name     string
+		strategy PruningStrategy
+	}{
+		{"RadialSector", PruningRadialSector},
+		{"SpatialGrid", PruningSpatialGrid},
+		{"AStarBeam", PruningAStarBeam},
+		{"ParetoEnvelope", PruningParetoEnvelope},
+		{"StateSpaceGrid", PruningStateSpaceGrid},
+	}
+
+	for _, tc := range strategies {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultRouterConfig()
+			cfg.TimeStep = 2 * time.Hour
+			cfg.PruningStrategy = tc.strategy
+
+			t0 := time.Now()
+			route, err := CalculateOptimalRoute(
+				start,
+				dest,
+				startTime,
+				polarTable,
+				weatherEngine,
+				landMask,
+				cfg,
+			)
+			dur := time.Since(t0)
+
+			if err != nil {
+				t.Fatalf("Strategy %s failed: %v", tc.name, err)
+			}
+			if !route.DestinationReached {
+				t.Fatalf("Strategy %s did not reach destination", tc.name)
+			}
+
+			t.Logf("[%s] Solved in %v: Route %.1f NM, Duration %.1f h, %d waypoints, %d isochrones",
+				tc.name, dur, route.TotalDistanceNM, route.TotalDurationHours, len(route.Waypoints), len(route.Isochrones))
+		})
+	}
+}
+
+
