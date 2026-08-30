@@ -2,14 +2,10 @@ package driver
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"sailboat/meteo/internal/grib2"
 	"sailboat/meteo/internal/model"
 )
 
@@ -62,9 +58,11 @@ func TestDiscoverSlices(t *testing.T) {
 
 func TestDownloadAndInspectECMWF(t *testing.T) {
 	driver := NewECMWFDriver(model.ModelIFS025, nil)
-	cycle, err := driver.CheckLatestCycle(context.Background())
-	if err != nil {
-		t.Skipf("Network not available or cycle check failed: %v", err)
+	cycle := &model.ModelCycle{
+		ModelName:     model.ModelIFS025,
+		ReferenceTime: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+		ResolutionDeg: 0.25,
+		ForecastSteps: []int{0},
 	}
 
 	tasks, err := driver.DiscoverSlices(cycle, []string{model.VarWindU10m})
@@ -72,35 +70,30 @@ func TestDownloadAndInspectECMWF(t *testing.T) {
 		t.Skipf("DiscoverSlices failed: %v", err)
 	}
 
-	offset, length, lookupErr := driver.lookupECMWFIndex(context.Background(), tasks[0].ExtraParams["idx_url"], tasks[0].ExtraParams["param"])
-	if lookupErr != nil || length == 0 {
-		t.Skipf("lookupECMWFIndex skipped: %v", lookupErr)
-	}
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tasks[0].SourceURL, nil)
+	sliceU, err := driver.IngestSlice(context.Background(), tasks[0])
 	if err != nil {
-		t.Skipf("Create request failed: %v", err)
+		t.Fatalf("IngestSlice for 10u failed: %v", err)
 	}
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
-	resp, err := driver.httpClient.Do(req)
-	if err != nil || resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
-		t.Skipf("ECMWF upstream fetch skipped: %v", err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil || len(data) == 0 {
-		t.Skipf("ReadAll failed: %v", err)
+	if sliceU.LonStart != 0.0 || sliceU.LonEnd != 359.75 {
+		t.Errorf("expected LonStart 0.0 and LonEnd 359.75, got %f and %f", sliceU.LonStart, sliceU.LonEnd)
 	}
 
-	msg, err := grib2.Parse(data)
+	tasksV, err := driver.DiscoverSlices(cycle, []string{model.VarWindV10m})
+	if err != nil || len(tasksV) == 0 {
+		t.Fatalf("DiscoverSlices for 10v failed: %v", err)
+	}
+	sliceV, err := driver.IngestSlice(context.Background(), tasksV[0])
 	if err != nil {
-		t.Fatalf("grib2.Parse failed: %v", err)
+		t.Fatalf("IngestSlice for 10v failed: %v", err)
 	}
-	if len(msg.Values) != 1038240 {
-		t.Fatalf("expected 1038240 values, got %d", len(msg.Values))
-	}
-	t.Logf("Parsed ECMWF message: Ni=%d, Nj=%d, LenValues=%d", msg.Ni, msg.Nj, len(msg.Values))
+
+	// Sample Grenada in normalized grid: Lat 12.0 (row 312), Lon -61.75 / 298.25°E (col 1193)
+	idxNorm := 312*1440 + 1193
+	uNorm := float64(sliceU.Data[idxNorm])
+	vNorm := float64(sliceV.Data[idxNorm])
+	spdNorm, dirNorm := model.UVToSpeedAndDirection(uNorm, vNorm)
+	t.Logf("Normalized ECMWF at Grenada (12.0, -61.75): U=%.2f m/s, V=%.2f m/s -> Spd=%.1f kts, Dir=%.1f°",
+		uNorm, vNorm, spdNorm*1.943844, dirNorm)
 }
 
 func TestDownloadAndInspectICON(t *testing.T) {

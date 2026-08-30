@@ -173,10 +173,10 @@ func Parse(data []byte) (*Message, error) {
 					if len(secData) >= 72 {
 						ni = int(binary.BigEndian.Uint32(secData[30:34]))
 						nj = int(binary.BigEndian.Uint32(secData[34:38]))
-						la1 = float64(int32(binary.BigEndian.Uint32(secData[46:50]))) * 1e-6
-						lo1 = float64(int32(binary.BigEndian.Uint32(secData[50:54]))) * 1e-6
-						la2 = float64(int32(binary.BigEndian.Uint32(secData[55:59]))) * 1e-6
-						lo2 = float64(int32(binary.BigEndian.Uint32(secData[59:63]))) * 1e-6
+						la1 = float64(readGRIBSigned(secData[46:50])) * 1e-6
+						lo1 = float64(readGRIBSigned(secData[50:54])) * 1e-6
+						la2 = float64(readGRIBSigned(secData[55:59])) * 1e-6
+						lo2 = float64(readGRIBSigned(secData[59:63])) * 1e-6
 						di = float64(binary.BigEndian.Uint32(secData[63:67])) * 1e-6
 						dj = float64(binary.BigEndian.Uint32(secData[67:71])) * 1e-6
 						scanMode = secData[71]

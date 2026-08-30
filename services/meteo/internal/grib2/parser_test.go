@@ -211,3 +211,68 @@ func TestParseRealSample(t *testing.T) {
 	}
 	t.Logf("Stats: NonZero=%d / %d, Min=%.3f, Max=%.3f", nonZeroCount, len(msg.Values), minVal, maxVal)
 }
+
+func TestInspectECMWFLocal(t *testing.T) {
+	dataU, err := os.ReadFile("/Users/jaclar/.gemini/antigravity/brain/7ca50455-2971-4c92-b814-a64a679fc45b/scratch/ecmwf_10u.grib2")
+	if err != nil {
+		t.Skipf("No ecmwf_10u.grib2 found: %v", err)
+	}
+	dataV, err := os.ReadFile("/Users/jaclar/.gemini/antigravity/brain/7ca50455-2971-4c92-b814-a64a679fc45b/scratch/ecmwf_10v.grib2")
+	if err != nil {
+		t.Skipf("No ecmwf_10v.grib2 found: %v", err)
+	}
+
+	msgU, err := Parse(dataU)
+	if err != nil {
+		t.Fatalf("Failed to parse 10u: %v", err)
+	}
+	msgV, err := Parse(dataV)
+	if err != nil {
+		t.Fatalf("Failed to parse 10v: %v", err)
+	}
+
+	t.Logf("10u Grid: Ni=%d, Nj=%d, La1=%f, La2=%f, Lo1=%f, Lo2=%f, Di=%f, Dj=%f, ScanMode=%d",
+		msgU.Ni, msgU.Nj, msgU.La1, msgU.La2, msgU.Lo1, msgU.Lo2, msgU.Di, msgU.Dj, msgU.ScanningMode)
+
+	var minU, maxU, minV, maxV float32 = 1e9, -1e9, 1e9, -1e9
+	for _, u := range msgU.Values {
+		if u < minU {
+			minU = u
+		}
+		if u > maxU {
+			maxU = u
+		}
+	}
+	for _, v := range msgV.Values {
+		if v < minV {
+			minV = v
+		}
+		if v > maxV {
+			maxV = v
+		}
+	}
+	t.Logf("ECMWF 10u min=%.3f max=%.3f | 10v min=%.3f max=%.3f", minU, maxU, minV, maxV)
+
+	// Check North Pole (row 0), Equator (row 360), South Pole (row 720)
+	t.Logf("Row 0 (Lat 90.0): U[0]=%.3f, V[0]=%.3f", msgU.Values[0], msgV.Values[0])
+	t.Logf("Row 360 (Lat 0.0, Lon 0.0): U[360*1440]=%.3f, V[360*1440]=%.3f", msgU.Values[360*1440], msgV.Values[360*1440])
+	t.Logf("Row 720 (Lat -90.0): U[720*1440]=%.3f, V[720*1440]=%.3f", msgU.Values[720*1440], msgV.Values[720*1440])
+
+	// Check Grenada (lat 12.0, lon -61.75 -> lon 298.25)
+	// If Lo1 = 180.0:
+	// Longitude 298.25 is (298.25 - 180.0) / 0.25 = 473 columns into the raw row!
+	idxCorrect := 312*1440 + 473
+	uCorr := float64(msgU.Values[idxCorrect])
+	vCorr := float64(msgV.Values[idxCorrect])
+	spdCorr := math.Hypot(uCorr, vCorr) * 1.943844
+	dirCorr := math.Mod(180.0+math.Atan2(uCorr, vCorr)*180.0/math.Pi, 360.0)
+	t.Logf("ECMWF at REAL Grenada (lat 12.0, lon -61.75 / 298.25°E): U=%.2f m/s, V=%.2f m/s -> Spd=%.1f kts, Dir=%.1f°",
+		uCorr, vCorr, spdCorr, dirCorr)
+
+	if spdCorr < 8.0 || spdCorr > 15.0 {
+		t.Errorf("expected trade wind speed ~10-12 knots, got %.1f", spdCorr)
+	}
+	if dirCorr < 60.0 || dirCorr > 110.0 {
+		t.Errorf("expected ENE trade wind direction ~70-90°, got %.1f", dirCorr)
+	}
+}

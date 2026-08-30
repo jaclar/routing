@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	ECMWFBaseS3URL = "https://ecmwf-forecasts.s3.amazonaws.com"
+	ECMWFBaseS3URL = "https://data.ecmwf.int/forecasts"
 )
 
 type ecmwfByteRange struct {
@@ -246,7 +246,34 @@ func (e *ECMWFDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*m
 
 	slice := msg.ToRawGridSlice(task.Variable)
 	slice.StepHours = task.StepHours
+
+	// ECMWF Open Data uses an antimeridian-centered longitudinal grid:
+	// Lo1 = 180.0° / -180.0° to Lo2 = 179.75°.
+	// Standardize to Greenwich-centered [0.0°, 359.75°] (consistent with GFS/ICON and Zarr store layout).
+	if msg.Lo1 == 180.0 || msg.Lo1 == -180.0 {
+		slice.Data = normalizeECMWFGrid(msg.Values, msg.Nj, msg.Ni)
+		slice.LonStart = 0.0
+		slice.LonEnd = 359.75
+		slice.LonStep = 0.25
+	}
+
 	return slice, nil
+}
+
+func normalizeECMWFGrid(data []float32, nlats, nlons int) []float32 {
+	if nlons <= 0 || nlats <= 0 || len(data) != nlats*nlons {
+		return data
+	}
+	normalized := make([]float32, len(data))
+	halfLon := nlons / 2 // 720
+	for r := 0; r < nlats; r++ {
+		rowOffset := r * nlons
+		// First half of output (0..179.75°) comes from second half of ECMWF input (cols 720..1439)
+		copy(normalized[rowOffset:rowOffset+halfLon], data[rowOffset+halfLon:rowOffset+nlons])
+		// Second half of output (180..359.75°) comes from first half of ECMWF input (cols 0..719)
+		copy(normalized[rowOffset+halfLon:rowOffset+nlons], data[rowOffset:rowOffset+halfLon])
+	}
+	return normalized
 }
 
 // fetchAndParseIndex downloads and parses an ECMWF JSON-Lines .index file once, caching the results in memory.
