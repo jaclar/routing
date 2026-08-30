@@ -1863,6 +1863,12 @@ body {
   line-height: 1.35;
 }
 
+.classical-wind-barb {
+  pointer-events: none !important;
+  background: transparent !important;
+  border: none !important;
+}
+
 /* ==========================================================================
    Custom Boat Builder & VPP Actions
    ========================================================================== */

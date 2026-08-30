@@ -48,7 +48,7 @@ interface MapViewProps {
  * 50+ kts: Violet (168, 85, 247)
  */
 function getWindColorRGB(tws: number): [number, number, number, number] {
-  const alpha = 0.78;
+  const alpha = 0.92;
   if (tws <= 0) return [29, 78, 216, alpha];
   if (tws < 10) {
     const f = tws / 10;
@@ -96,13 +96,24 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
       Math.round(168 + f * (139 - 168)),
       Math.round(85 + f * (92 - 85)),
       Math.round(247 + f * (246 - 247)),
-      alpha + 0.05,
+      0.95,
     ];
   }
 }
 
 /**
- * Generates an SVG string for a classical meteorological wind barb.
+ * Returns a significantly darker, high-contrast shade of the wind speed color for barbs.
+ */
+function getDarkWindBarbColor(tws: number): string {
+  const [r, g, b] = getWindColorRGB(tws);
+  const darkR = Math.round(r * 0.40);
+  const darkG = Math.round(g * 0.40);
+  const darkB = Math.round(b * 0.40);
+  return `rgb(${darkR}, ${darkG}, ${darkB})`;
+}
+
+/**
+ * Generates an SVG string for a classical meteorological wind barb colored by a darker version of wind speed.
  */
 function createClassicalWindBarbSVG(twsKts: number, twdDeg: number): string {
   const roundedSpd = Math.round(twsKts / 5) * 5;
@@ -111,38 +122,39 @@ function createClassicalWindBarbSVG(twsKts: number, twdDeg: number): string {
   const fullBarbs = Math.floor(rem / 10);
   rem = rem % 10;
   const halfBarbs = Math.floor(rem / 5);
+  const barbColor = getDarkWindBarbColor(twsKts);
 
   let elements = '';
   if (roundedSpd < 2.5) {
-    elements = `<circle cx="16" cy="16" r="3.5" fill="none" stroke="#f8fafc" stroke-width="1.6" opacity="0.85"/>`;
+    elements = `<circle cx="16" cy="16" r="3.5" fill="none" stroke="${barbColor}" stroke-width="2.2" opacity="0.98"/>`;
     return `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" style="filter: drop-shadow(0 0 1.2px rgba(255,255,255,0.65)) drop-shadow(0 1px 2px rgba(0,0,0,0.85));">
         ${elements}
       </svg>
     `;
   }
 
   // Staff pointing FROM wind direction
-  elements += `<line x1="16" y1="16" x2="16" y2="3.5" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round" opacity="0.9"/>`;
+  elements += `<line x1="16" y1="16" x2="16" y2="3.5" stroke="${barbColor}" stroke-width="2.2" stroke-linecap="round" opacity="0.98"/>`;
 
   let yPos = 3.5;
   const barbSpacing = 2.8;
 
   for (let i = 0; i < flags; i++) {
-    elements += `<polygon points="16,${yPos} 23,${yPos + 2.0} 16,${yPos + 4.0}" fill="#f8fafc" opacity="0.95"/>`;
+    elements += `<polygon points="16,${yPos} 23,${yPos + 2.0} 16,${yPos + 4.0}" fill="${barbColor}" stroke="${barbColor}" stroke-width="0.8" opacity="0.98"/>`;
     yPos += 4.5;
   }
   for (let i = 0; i < fullBarbs; i++) {
-    elements += `<line x1="16" y1="${yPos}" x2="22.5" y2="${yPos - 2.0}" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round" opacity="0.95"/>`;
+    elements += `<line x1="16" y1="${yPos}" x2="22.5" y2="${yPos - 2.0}" stroke="${barbColor}" stroke-width="2.2" stroke-linecap="round" opacity="0.98"/>`;
     yPos += barbSpacing;
   }
   for (let i = 0; i < halfBarbs; i++) {
-    elements += `<line x1="16" y1="${yPos}" x2="19.5" y2="${yPos - 1.2}" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round" opacity="0.95"/>`;
+    elements += `<line x1="16" y1="${yPos}" x2="19.5" y2="${yPos - 1.2}" stroke="${barbColor}" stroke-width="2.2" stroke-linecap="round" opacity="0.98"/>`;
     yPos += barbSpacing;
   }
 
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" style="transform: rotate(${twdDeg}deg); transform-origin: 16px 16px; filter: drop-shadow(0 0 2px rgba(0,0,0,0.85));">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" style="transform: rotate(${twdDeg}deg); transform-origin: 16px 16px; filter: drop-shadow(0 0 1.2px rgba(255,255,255,0.65)) drop-shadow(0 1px 2px rgba(0,0,0,0.85));">
       ${elements}
     </svg>
   `;
@@ -261,6 +273,14 @@ export const MapView: React.FC<MapViewProps> = ({
     layersRef.current.multiRouteGroup = L.featureGroup().addTo(map);
     layersRef.current.windGroup = L.featureGroup().addTo(map);
     layersRef.current.landmaskGroup = L.featureGroup().addTo(map);
+
+    // Dedicated Leaflet pane for wind heatmap (between base tiles and overlays)
+    map.createPane('windHeatmapPane');
+    const windPane = map.getPane('windHeatmapPane');
+    if (windPane) {
+      windPane.style.zIndex = '250';
+      windPane.style.pointerEvents = 'none';
+    }
 
     // Map click handler for interactive waypoint placement
     map.on('click', (e: L.LeafletMouseEvent) => {
@@ -410,35 +430,32 @@ export const MapView: React.FC<MapViewProps> = ({
 
     group.clearLayers();
 
+    // Clean up previous overlay to avoid setUrl/setBounds race conditions
+    if (layersRef.current.windHeatmapOverlay) {
+      layersRef.current.windHeatmapOverlay.remove();
+      layersRef.current.windHeatmapOverlay = undefined;
+    }
+
     if (!showWindGrid || !weatherGrid || weatherGrid.grid.length === 0) {
-      if (layersRef.current.windHeatmapOverlay) {
-        layersRef.current.windHeatmapOverlay.remove();
-        layersRef.current.windHeatmapOverlay = undefined;
-      }
       return;
     }
 
     const { grid, min_lat, max_lat, min_lon, max_lon, lat_step, lon_step } = weatherGrid;
 
-    // A. Render Smooth Wind Intensity Heatmap Overlay
+    // A. Render Smooth Wind Intensity Heatmap Overlay into dedicated pane
     const canvas = renderWindHeatmapCanvas(weatherGrid);
     const bounds = L.latLngBounds([
-      [min_lat, min_lon],
-      [max_lat, max_lon],
+      [Math.min(min_lat, max_lat), Math.min(min_lon, max_lon)],
+      [Math.max(min_lat, max_lat), Math.max(min_lon, max_lon)],
     ]);
 
-    if (layersRef.current.windHeatmapOverlay) {
-      layersRef.current.windHeatmapOverlay.setUrl(canvas.toDataURL());
-      layersRef.current.windHeatmapOverlay.setBounds(bounds);
-    } else {
-      layersRef.current.windHeatmapOverlay = L.imageOverlay(canvas.toDataURL(), bounds, {
-        opacity: 0.75,
-        interactive: false,
-        zIndex: 200,
-      }).addTo(map);
-    }
+    layersRef.current.windHeatmapOverlay = L.imageOverlay(canvas.toDataURL(), bounds, {
+      opacity: 0.90,
+      interactive: false,
+      pane: 'windHeatmapPane',
+    }).addTo(map);
 
-    // B. Render Meteorological Wind Barbs
+    // B. Render Meteorological Wind Barbs (colored by dark wind speed shade)
     for (let i = 0; i < grid.length; i += 1) {
       const lat = min_lat + i * lat_step;
       for (let j = 0; j < grid[i].length; j += 1) {
@@ -623,16 +640,16 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const polygonLayer = L.polygon(latLngs, {
         renderer: canvasRenderer,
-        color: '#f59e0b',
-        weight: 2,
-        dashArray: '5, 5',
-        fillColor: '#ef4444',
-        fillOpacity: 0.22,
+        color: '#000000',
+        weight: 1,
+        opacity: 0.95,
+        fillColor: '#6b7280',
+        fillOpacity: 0.45,
       });
 
       polygonLayer.bindTooltip(
         `<div style="font-family: var(--font-sans); font-size: 11px;">
-           <b style="color: #f59e0b;">🛡️ ${poly.name}</b><br/>
+           <b style="color: #e2e8f0;">🛡️ ${poly.name}</b><br/>
            <span style="color: #94a3b8;">GSHHG Land Boundary (${poly.vertices.length} vertices)</span>
          </div>`,
         { sticky: true }

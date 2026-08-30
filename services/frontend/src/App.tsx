@@ -73,10 +73,10 @@ export const App: React.FC = () => {
   const [weatherGrid, setWeatherGrid] = useState<WeatherGridResponse | null>(null);
   const [landmaskPolygons, setLandmaskPolygons] = useState<LandmaskPolygon[]>([]);
 
-  // Layer Defaults: Only Active Wind & Barbs selected; Isochrones and Landmass unselected
+  // Layer Defaults: Active Wind & Barbs and Landmass Polygons enabled by default
   const [showWindGrid, setShowWindGrid] = useState<boolean>(true);
   const [showIsochrones, setShowIsochrones] = useState<boolean>(false);
-  const [showLandmask, setShowLandmask] = useState<boolean>(false);
+  const [showLandmask, setShowLandmask] = useState<boolean>(true);
 
   // Weather grid cache by model and timestamp
   const weatherCacheRef = useRef<Map<string, WeatherGridResponse>>(new Map());

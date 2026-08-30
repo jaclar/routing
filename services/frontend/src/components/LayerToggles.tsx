@@ -102,9 +102,9 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
           type="checkbox"
           checked={showLandmask}
           onChange={onToggleLandmask}
-          style={{ accentColor: '#f59e0b' }}
+          style={{ accentColor: '#94a3b8' }}
         />
-        <ShieldAlert size={14} color="#f59e0b" />
+        <ShieldAlert size={14} color="#94a3b8" />
         <span>Landmass Polygons</span>
       </label>
 
