@@ -94,7 +94,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
           style={{ accentColor: modelMeta.color }}
         />
         <Wind size={14} color={modelMeta.lightColor} />
-        <span>{modelMeta.shortName} Wind &amp; Barbs</span>
+        <span>Wind (10m)</span>
       </label>
 
       <label className="toggle-item">

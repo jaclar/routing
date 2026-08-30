@@ -15,6 +15,9 @@ interface TimelineColumnData {
   dayOffsetStr: string;
   boatSpeedKts: number;
   twsKts: number;
+  gustKts: number;
+  waveHeightM: number;
+  wavePeriodS: number;
   twdDeg: number;
   twaDeg: number;
   headingDeg: number;
@@ -23,7 +26,7 @@ interface TimelineColumnData {
   waypointIndex: number;
 }
 
-const COLUMN_WIDTH_PX = 52;
+const COLUMN_WIDTH_PX = 60;
 
 /**
  * Maps true wind speed (kts) to RGB color matching the map's heatmap ramp:
@@ -72,6 +75,51 @@ export function getWindColor(tws: number): string {
     const g = Math.round(85 + f * (92 - 85));
     const b = Math.round(247 + f * (246 - 247));
     return `rgb(${r}, ${g}, ${b})`;
+  }
+}
+
+/**
+ * Returns point of sail color matching Passage Statistics:
+ * - Upwind (< 60°): Sky Cyan (#38bdf8)
+ * - Reaching (60° - 120°): Emerald Green (#10b981)
+ * - Downwind (>= 120°): Purple (#a855f7)
+ */
+export function getPointOfSailColor(twaDeg: number): string {
+  const twa = Math.abs(twaDeg);
+  if (twa < 60.0) {
+    return '#38bdf8'; // Upwind
+  } else if (twa < 120.0) {
+    return '#10b981'; // Reaching
+  } else {
+    return '#a855f7'; // Downwind
+  }
+}
+
+/**
+ * Maps wave height and period to color representing sea state intensity / steepness:
+ * - Steepness increases with higher wave height and lower wave period.
+ * - Calm / Gentle: Soft Cyan (#38bdf8)
+ * - Moderate: Emerald Green (#10b981)
+ * - Choppy / Building: Amber Yellow (#eab308)
+ * - Rough / Steep: Vivid Orange (#f97316)
+ * - Very Rough / Violent: Crimson Red (#ef4444)
+ */
+export function getWaveIntensityColor(heightM: number, periodS: number): string {
+  const h = Math.max(0, heightM);
+  const t = Math.max(3.0, periodS || 7.0);
+  // Intensity index based on wave height & steepness (H / T^0.9)
+  const intensity = h * Math.pow(7.5 / t, 0.9);
+
+  if (intensity < 0.9) {
+    return '#38bdf8'; // Calm / Gentle
+  } else if (intensity < 1.7) {
+    return '#10b981'; // Moderate
+  } else if (intensity < 2.6) {
+    return '#eab308'; // Choppy / Building
+  } else if (intensity < 3.8) {
+    return '#f97316'; // Rough / Steep
+  } else {
+    return '#ef4444'; // Very Rough / Violent
   }
 }
 
@@ -186,6 +234,27 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
       // Interpolate values
       const boatSpeedKts = wpA.boat_speed_kts * (1 - f) + wpB.boat_speed_kts * f;
       const twsKts = wpA.tws_kts * (1 - f) + wpB.tws_kts * f;
+
+      const gustA = wpA.gust_kts !== undefined && wpA.gust_kts > 0 ? wpA.gust_kts : wpA.tws_kts * 1.25 + 1.5;
+      const gustB = wpB.gust_kts !== undefined && wpB.gust_kts > 0 ? wpB.gust_kts : wpB.tws_kts * 1.25 + 1.5;
+      const gustKts = gustA * (1 - f) + gustB * f;
+
+      const waveA = wpA.wave_height_m !== undefined && wpA.wave_height_m > 0
+        ? wpA.wave_height_m
+        : Math.max(0.3, Math.round(Math.pow(wpA.tws_kts / 10.0, 1.3) * 0.5 * 10.0) / 10.0);
+      const waveB = wpB.wave_height_m !== undefined && wpB.wave_height_m > 0
+        ? wpB.wave_height_m
+        : Math.max(0.3, Math.round(Math.pow(wpB.tws_kts / 10.0, 1.3) * 0.5 * 10.0) / 10.0);
+      const waveHeightM = waveA * (1 - f) + waveB * f;
+
+      const periodA = wpA.wave_period_s !== undefined && wpA.wave_period_s > 0
+        ? wpA.wave_period_s
+        : Math.max(4.0, Math.round((3.5 + Math.sqrt(wpA.tws_kts) * 1.2) * 10.0) / 10.0);
+      const periodB = wpB.wave_period_s !== undefined && wpB.wave_period_s > 0
+        ? wpB.wave_period_s
+        : Math.max(4.0, Math.round((3.5 + Math.sqrt(wpB.tws_kts) * 1.2) * 10.0) / 10.0);
+      const wavePeriodS = periodA * (1 - f) + periodB * f;
+
       const twdDeg = interpolateAngle(wpA.twd_deg, wpB.twd_deg, f);
       const headingDeg = interpolateAngle(wpA.heading_deg, wpB.heading_deg, f);
       const twaDeg = wpA.twa_deg * (1 - f) + wpB.twa_deg * f;
@@ -218,6 +287,9 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
         dayOffsetStr,
         boatSpeedKts,
         twsKts,
+        gustKts,
+        waveHeightM,
+        wavePeriodS,
         twdDeg,
         twaDeg,
         headingDeg,
@@ -245,11 +317,7 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
     return currDiff < prevDiff ? idx : bestIdx;
   }, 0);
 
-  // Compute locked 1/3 camera tracking:
-  // - Starts at the beginning (column 0)
-  // - Moves until it hits the 1/3 viewport line
-  // - Stays fixed at 1/3 while table content scrolls
-  // - When the end of the table is reached, moves forward to the last column
+  // Compute locked 1/3 camera tracking
   const { markerX, targetScrollLeft } = useMemo(() => {
     if (!routeResult || columns.length === 0) {
       return { markerX: 0, targetScrollLeft: 0 };
@@ -286,18 +354,30 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
 
   return (
     <div className="timeline-table-root">
-      {/* Fixed Sticky Header Labels Column */}
+      {/* Fixed Sticky Header Labels Column with Units */}
       <div className="timeline-table-labels">
         <div className="timeline-label-cell label-time">TIME</div>
-        <div className="timeline-label-cell label-wind">WIND</div>
-        <div className="timeline-label-cell label-boat">BOAT</div>
-        <div className="timeline-label-cell label-twa-arrow">TWA</div>
-        <div className="timeline-label-cell label-twa-deg">DEG</div>
+        <div className="timeline-label-cell label-wind">
+          <span>WIND</span>
+          <span className="unit-sub">kt</span>
+        </div>
+        <div className="timeline-label-cell label-boat">
+          <span>BOAT</span>
+          <span className="unit-sub">kt</span>
+        </div>
+        <div className="timeline-label-cell label-wave">
+          <span>WAVE</span>
+          <span className="unit-sub">m/s</span>
+        </div>
+        <div className="timeline-label-cell label-twa">
+          <span>TWA</span>
+          <span className="unit-sub">°</span>
+        </div>
       </div>
 
       {/* Horizontally Scrollable Data Viewport */}
       <div className="timeline-table-viewport-wrapper">
-        {/* Dynamic Vertical Indicator Line (Starts at col 0, locks at 1/3, then travels to end) */}
+        {/* Dynamic Vertical Indicator Line */}
         <div
           className="timeline-table-indicator-line"
           style={{ left: `${markerX}px` }}
@@ -312,9 +392,15 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
             {columns.map((col, idx) => {
               const isActive = idx === activeColIndex;
               const windColor = getWindColor(col.twsKts);
-              // Relative wind flow arrow angle: 0deg = downwind (up), 180deg = headwind (down)
-              const windFlowAngle = (col.relWindDeg + 180) % 360;
-              const tackColor = col.tack === 'Stbd' ? '#10b981' : '#ef4444';
+              const gustColor = getWindColor(col.gustKts);
+              const waveColor = getWaveIntensityColor(col.waveHeightM, col.wavePeriodS);
+              const posColor = getPointOfSailColor(col.twaDeg);
+              // Relative wind flow arrow over deck (Bow is to the left):
+              // 0° (Headwind from Bow on Left) -> flow to Right (0°)
+              // +90° (Starboard Beam from Top) -> flow to Bottom (+90°)
+              // 180° (Downwind from Stern on Right) -> flow to Left (180°)
+              // -90° (Port Beam from Bottom) -> flow to Top (-90°)
+              const windFlowAngle = col.relWindDeg;
 
               return (
                 <div
@@ -322,7 +408,7 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
                   className={`timeline-col ${isActive ? 'col-active' : ''}`}
                   style={{ width: `${COLUMN_WIDTH_PX}px` }}
                   onClick={() => onIndexChange(col.waypointIndex)}
-                  title={`+${col.elapsedHours.toFixed(1)}h (${col.clockTime} UTC)\nWind: ${Math.round(col.twsKts)} kts @ ${col.twdDeg.toFixed(0)}°\nBoat: ${col.boatSpeedKts.toFixed(1)} kts\nTWA: ${col.twaDeg.toFixed(0)}° (${col.tack})`}
+                  title={`+${col.elapsedHours.toFixed(1)}h (${col.clockTime} UTC)\nWind: ${Math.round(col.twsKts)} kts (Gust: ${Math.round(col.gustKts)} kts) @ ${col.twdDeg.toFixed(0)}°\nBoat: ${col.boatSpeedKts.toFixed(1)} kts\nWave: ${col.waveHeightM.toFixed(1)}m @ ${Math.round(col.wavePeriodS)}s\nTWA: ${col.twaDeg.toFixed(0)}° (${col.tack})`}
                 >
                   {/* Row 1: Time Passed in Sail + Clock Time */}
                   <div className="timeline-data-cell cell-time">
@@ -330,17 +416,30 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
                     <span className="time-clock-tag">{col.clockTime}</span>
                   </div>
 
-                  {/* Row 2: Wind Speed Colored to Map Color Scale */}
+                  {/* Row 2: Divided Wind (TWS) & Gust Chip */}
                   <div className="timeline-data-cell cell-wind">
-                    <span
-                      className="wind-speed-badge"
-                      style={{
-                        backgroundColor: windColor,
-                        color: col.twsKts >= 14 && col.twsKts <= 25 ? '#090e17' : '#ffffff',
-                      }}
-                    >
-                      {Math.round(col.twsKts)}
-                    </span>
+                    <div className="wind-divided-chip">
+                      <span
+                        className="wind-chip-segment wind-chip-tws"
+                        style={{
+                          backgroundColor: windColor,
+                          color: '#020617',
+                        }}
+                        title={`Sustained: ${Math.round(col.twsKts)} kt`}
+                      >
+                        {Math.round(col.twsKts)}
+                      </span>
+                      <span
+                        className="wind-chip-segment wind-chip-gust"
+                        style={{
+                          backgroundColor: gustColor,
+                          color: '#020617',
+                        }}
+                        title={`Gust: ${Math.round(col.gustKts)} kt`}
+                      >
+                        {Math.round(col.gustKts)}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Row 3: Boat Speed (knots) */}
@@ -348,34 +447,45 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
                     <span className="boat-speed-val">{col.boatSpeedKts.toFixed(1)}</span>
                   </div>
 
-                  {/* Row 4: TWA Directional Arrow */}
-                  <div className="timeline-data-cell cell-twa-arrow">
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      style={{
-                        transform: `rotate(${windFlowAngle}deg)`,
-                        transition: 'transform 0.15s ease',
-                      }}
-                    >
-                      {/* Flow directional arrow */}
-                      <path
-                        d="M12 3 L12 21 M12 21 L6 15 M12 21 L18 15"
-                        fill="none"
-                        stroke={tackColor}
-                        strokeWidth="2.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                  {/* Row 4: Wave Height (m) & Period (s) - Color Coded by Intensity */}
+                  <div className="timeline-data-cell cell-wave">
+                    <div className="wave-combined-cell">
+                      <span className="wave-height-val" style={{ color: waveColor }}>
+                        {col.waveHeightM.toFixed(1)}m
+                      </span>
+                      <span className="wave-period-val" style={{ color: waveColor, opacity: 0.85 }}>
+                        {Math.round(col.wavePeriodS)}s
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Row 5: TWA in Degrees */}
-                  <div className="timeline-data-cell cell-twa-deg">
-                    <span className="twa-deg-val" style={{ color: tackColor }}>
-                      {Math.round(col.twaDeg)}°
-                    </span>
+                  {/* Row 5: Combined TWA Directional Arrow & Degrees (Point of Sail Color) */}
+                  <div className="timeline-data-cell cell-twa">
+                    <div className="twa-combined-row">
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        style={{
+                          transform: `rotate(${windFlowAngle}deg)`,
+                          transformOrigin: 'center',
+                          transition: 'transform 0.15s ease',
+                        }}
+                      >
+                        {/* Horizontal flow arrow pointing Left to Right (Bow to Stern at 0°) */}
+                        <path
+                          d="M3 12 L21 12 M15 6 L21 12 M15 18 L21 12"
+                          fill="none"
+                          stroke={posColor}
+                          strokeWidth="2.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <span className="twa-deg-val" style={{ color: posColor }}>
+                        {Math.round(col.twaDeg)}°
+                      </span>
+                    </div>
                   </div>
                 </div>
               );

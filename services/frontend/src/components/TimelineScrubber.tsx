@@ -6,11 +6,12 @@ import {
   Pause,
   SkipBack,
   SkipForward,
-  Clock,
   Download,
   RotateCw,
   Calendar,
   X,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 
 export type AnimationSpeed = 0.5 | 1 | 2;
@@ -54,6 +55,24 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   // State for Departure Time Change Dialog Modal
   const [isDateModalOpen, setIsDateModalOpen] = useState<boolean>(false);
   const [tempDepartureTime, setTempDepartureTime] = useState<string>(departureTime);
+
+  // State for Model Selector Dropdown
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState<boolean>(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    if (isModelDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isModelDropdownOpen]);
 
   const totalWaypoints = routeResult ? routeResult.waypoints.length : 0;
   const durationSec = SPEED_TO_DURATION_SEC[speedMultiplier];
@@ -240,8 +259,6 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   }
 
   // Active Route Scrubber View
-  const progressPercent = totalWaypoints > 1 ? ((currentIndex / (totalWaypoints - 1)) * 100).toFixed(0) : '0';
-
   return (
     <div className="timeline-bar mobile-bottom-sheet">
       {/* Top Playback & Control Strip */}
@@ -292,23 +309,22 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           <SkipForward size={18} />
         </button>
 
-        {/* Desktop Speed Switcher (0.5x, 1x, 2x) */}
+        {/* Desktop Speed Switcher (.5x, 1x, 2x) */}
         <div className="speed-controls-group desktop-only-control">
-          <Clock size={13} className="speed-clock-icon" />
           <div className="speed-segmented-bar">
             <button
               type="button"
               className={`speed-pill-btn ${speedMultiplier === 0.5 ? 'active' : ''}`}
               onClick={() => handleSpeedChange(0.5)}
-              title="0.5x Speed — 30 seconds"
+              title="0.5x Speed — 30s"
             >
-              0.5x
+              .5x
             </button>
             <button
               type="button"
               className={`speed-pill-btn ${speedMultiplier === 1 ? 'active' : ''}`}
               onClick={() => handleSpeedChange(1)}
-              title="1x Speed — 20 seconds"
+              title="1x Speed — 20s"
             >
               1x
             </button>
@@ -316,72 +332,117 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
               type="button"
               className={`speed-pill-btn ${speedMultiplier === 2 ? 'active' : ''}`}
               onClick={() => handleSpeedChange(2)}
-              title="2x Speed — 10 seconds"
+              title="2x Speed — 10s"
             >
               2x
             </button>
           </div>
         </div>
 
-        {/* Model Selector Pills */}
+        {/* Compact Model Selector Dropdown */}
         {multiRouteResult && Object.keys(multiRouteResult).length > 1 && (
-          <div className="model-segmented-switcher">
-            {Object.entries(multiRouteResult).map(([mId, r]) => {
-              const meta = WEATHER_MODELS[mId] || {
-                id: mId,
-                name: mId.toUpperCase(),
-                shortName: mId,
-                color: '#0284c7',
+          <div className="model-dropdown-container" ref={modelDropdownRef}>
+            {(() => {
+              const activeMeta = WEATHER_MODELS[activeModel] || {
+                id: activeModel,
+                name: activeModel.toUpperCase(),
+                shortName: activeModel,
+                color: '#38bdf8',
                 lightColor: '#38bdf8',
                 badgeBg: 'rgba(56, 189, 248, 0.15)',
-                badgeBorder: 'rgba(56, 189, 248, 0.4)',
               };
-              const isSelected = mId === activeModel;
-              const durHours = r?.total_duration_hours || 0;
-              const durStr = durHours >= 24
-                ? `${Math.floor(durHours / 24)}d ${Math.round(durHours % 24)}h`
-                : `${durHours.toFixed(1)}h`;
+              const activeRoute = multiRouteResult[activeModel];
+              const activeDur = activeRoute?.total_duration_hours || 0;
+              const activeDurStr = activeDur >= 24
+                ? `${Math.floor(activeDur / 24)}d ${Math.round(activeDur % 24)}h`
+                : `${activeDur.toFixed(1)}h`;
 
               return (
-                <button
-                  key={mId}
-                  type="button"
-                  className={`model-pill-select-btn ${isSelected ? 'selected' : ''}`}
-                  onClick={() => onActiveModelChange?.(mId)}
-                  title={`Switch active weather model to ${meta.name}`}
-                  style={{
-                    borderColor: isSelected ? meta.lightColor : 'rgba(148, 163, 184, 0.2)',
-                    backgroundColor: isSelected ? meta.badgeBg : 'rgba(15, 23, 42, 0.6)',
-                  }}
-                >
-                  <span
-                    className="model-status-dot"
-                    style={{ backgroundColor: isSelected ? meta.lightColor : meta.color }}
-                  />
-                  <span className="model-btn-name">{meta.shortName}</span>
-                  <span className="model-btn-duration" style={{ color: isSelected ? meta.lightColor : '#94a3b8' }}>
-                    {durStr}
-                  </span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className={`model-dropdown-trigger-btn ${isModelDropdownOpen ? 'open' : ''}`}
+                    onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                    title={`Active weather model: ${activeMeta.name}. Click to switch model`}
+                    style={{
+                      borderColor: isModelDropdownOpen ? activeMeta.lightColor : 'rgba(148, 163, 184, 0.25)',
+                    }}
+                  >
+                    <span
+                      className="model-status-dot"
+                      style={{ backgroundColor: activeMeta.lightColor }}
+                    />
+                    <span className="model-btn-name">{activeMeta.shortName}</span>
+                    <span className="model-btn-duration" style={{ color: activeMeta.lightColor }}>
+                      {activeDurStr}
+                    </span>
+                    <ChevronDown size={13} className={`model-dropdown-chevron ${isModelDropdownOpen ? 'rotated' : ''}`} />
+                  </button>
+
+                  {isModelDropdownOpen && (
+                    <div className="model-dropdown-menu">
+                      <div className="model-dropdown-header">WEATHER MODEL</div>
+                      {Object.entries(multiRouteResult).map(([mId, r]) => {
+                        const meta = WEATHER_MODELS[mId] || {
+                          id: mId,
+                          name: mId.toUpperCase(),
+                          shortName: mId,
+                          color: '#0284c7',
+                          lightColor: '#38bdf8',
+                          badgeBg: 'rgba(56, 189, 248, 0.15)',
+                        };
+                        const isSelected = mId === activeModel;
+                        const durHours = r?.total_duration_hours || 0;
+                        const durStr = durHours >= 24
+                          ? `${Math.floor(durHours / 24)}d ${Math.round(durHours % 24)}h`
+                          : `${durHours.toFixed(1)}h`;
+
+                        return (
+                          <button
+                            key={mId}
+                            type="button"
+                            className={`model-dropdown-item ${isSelected ? 'selected' : ''}`}
+                            onClick={() => {
+                              onActiveModelChange?.(mId);
+                              setIsModelDropdownOpen(false);
+                            }}
+                          >
+                            <div className="model-dropdown-item-left">
+                              <span
+                                className="model-status-dot"
+                                style={{ backgroundColor: meta.lightColor }}
+                              />
+                              <div className="model-dropdown-item-text">
+                                <span className="model-dropdown-item-name">{meta.name}</span>
+                              </div>
+                            </div>
+                            <div className="model-dropdown-item-right">
+                              <span className="model-dropdown-item-dur" style={{ color: isSelected ? meta.lightColor : 'var(--text-muted)' }}>
+                                {durStr}
+                              </span>
+                              {isSelected && <Check size={13} color={meta.lightColor} />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
 
-        {/* Progress % */}
-        <span className="timeline-progress-badge">{progressPercent}%</span>
-
-        {/* Action Buttons: Recalculate & GPX Export */}
+        {/* Action Buttons: Recalculate & GPX Export (Icons Only) */}
         <div className="dock-actions-cluster">
           <button
             type="button"
             className={`dock-recalc-btn ${isRecalcActive ? 'active-changed' : ''}`}
             onClick={handleOpenDateModal}
             disabled={loading}
-            title="Change departure time & recalculate routes"
+            title={loading ? 'Recalculating routes...' : 'Change departure time & recalculate routes'}
           >
-            <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
-            <span>{loading ? 'Solving...' : 'Recalculate'}</span>
+            <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
 
           <button
@@ -390,8 +451,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             onClick={handleExportGPX}
             title="Download GPX route"
           >
-            <Download size={13} />
-            <span>GPX</span>
+            <Download size={14} />
           </button>
         </div>
       </div>
