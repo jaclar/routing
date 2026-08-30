@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "pnpm --dir services/frontend dev",
     "dev:frontend": "pnpm --dir services/frontend dev",
-    "dev:backend": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up routing-service vpp-service",
+    "dev:backend": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up routing-service vpp-service meteo-service meteo-worker --build",
     "dev:docker": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",
     "build": "pnpm --dir services/frontend build",
     "build:frontend": "pnpm --dir services/frontend build",

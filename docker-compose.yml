@@ -18,6 +18,7 @@ services:
       - frontend
       - routing-service
       - vpp-service
+      - meteo-service
     networks:
       - routing-network
 
@@ -27,7 +28,35 @@ services:
       dockerfile: Dockerfile
     container_name: sailboat-vpp-service
     environment:
-      - PORT=8000
+      - PORT=4001
+    restart: unless-stopped
+    networks:
+      - routing-network
+
+  meteo-service:
+    build:
+      context: ./services/meteo
+      dockerfile: Dockerfile
+    container_name: sailboat-meteo-service
+    environment:
+      - PORT=4081
+      - DATA_DIR=/data/store
+    volumes:
+      - meteo_data:/data/store
+    restart: unless-stopped
+    networks:
+      - routing-network
+
+  meteo-worker:
+    build:
+      context: ./services/meteo
+      dockerfile: Dockerfile
+    container_name: sailboat-meteo-worker
+    command: ["/app/meteo-worker", "--daemon", "--poll-interval=10", "--concurrency=8"]
+    environment:
+      - DATA_DIR=/data/store
+    volumes:
+      - meteo_data:/data/store
     restart: unless-stopped
     networks:
       - routing-network
@@ -38,10 +67,12 @@ services:
       dockerfile: Dockerfile
     container_name: sailboat-routing-service
     environment:
-      - PORT=8080
-      - VPP_SERVICE_URL=http://vpp-service:8000
+      - PORT=4080
+      - VPP_SERVICE_URL=http://vpp-service:4001
+      - METEO_SERVICE_URL=http://meteo-service:4081
     depends_on:
       - vpp-service
+      - meteo-service
     restart: unless-stopped
     networks:
       - routing-network
@@ -54,6 +85,7 @@ services:
     depends_on:
       - routing-service
       - vpp-service
+      - meteo-service
     restart: unless-stopped
     networks:
       - routing-network
@@ -67,3 +99,5 @@ volumes:
     name: sailboat_caddy_data
   caddy_config:
     name: sailboat_caddy_config
+  meteo_data:
+    name: sailboat_meteo_data

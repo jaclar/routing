@@ -84,3 +84,4 @@ pnpm-debug.log*
 assets/
 external assets/
 *.b
+data/

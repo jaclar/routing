@@ -1,8 +1,8 @@
 # Development override: exposes internal services directly to host ports and enables Vite HMR
 # Usage:
 #   1. Backend in Docker + Vite on Host (Fastest & most ergonomic):
-#      pnpm dev:backend   (or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up routing-service vpp-service)
-#      pnpm dev           (in another terminal: runs Vite with instant HMR on http://localhost:3333)
+#      pnpm dev:backend   (or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up routing-service vpp-service meteo-service)
+#      pnpm dev           (in another terminal: runs Vite with instant HMR on http://localhost:4000)
 #
 #   2. Full stack in Docker with live reload:
 #      pnpm dev:docker    (or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up)
@@ -10,11 +10,21 @@
 services:
   vpp-service:
     ports:
-      - "8000:8000"
+      - "4001:4001"
+
+  meteo-service:
+    ports:
+      - "4081:4081"
+    volumes:
+      - ./data/store:/data/store
+
+  meteo-worker:
+    volumes:
+      - ./data/store:/data/store
 
   routing-service:
     ports:
-      - "8080:8080"
+      - "4080:4080"
 
   frontend:
     build:
@@ -24,7 +34,8 @@ services:
       - ./services/frontend:/app
       - /app/node_modules
     ports:
-      - "3333:3333"
+      - "4000:4000"
     environment:
-      - ROUTING_SERVICE_URL=http://routing-service:8080
-      - VPP_SERVICE_URL=http://vpp-service:8000
+      - ROUTING_SERVICE_URL=http://routing-service:4080
+      - VPP_SERVICE_URL=http://vpp-service:4001
+      - METEO_SERVICE_URL=http://meteo-service:4081
