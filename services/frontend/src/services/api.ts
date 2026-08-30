@@ -68,11 +68,39 @@ export function getSaneDefaultTimeStepHours(distNM: number): number {
   return 2.0;
 }
 
+async function parseApiResponse<T>(res: Response, fallbackErrorMsg: string): Promise<T> {
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok) {
+    let errMsg = `${fallbackErrorMsg} (HTTP ${res.status})`;
+    if (contentType.includes('application/json')) {
+      try {
+        const json = await res.json();
+        errMsg = json.hint ? `${json.error} — ${json.hint}` : json.error || json.detail || json.message || errMsg;
+      } catch {}
+    } else {
+      const text = await res.text();
+      if (text) {
+        errMsg = text.length > 200 ? `${fallbackErrorMsg}: ${text.slice(0, 200)}...` : text;
+      }
+    }
+    throw new Error(errMsg);
+  }
+
+  if (contentType.includes('application/json')) {
+    return (await res.json()) as T;
+  }
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid response received from server: ${text.slice(0, 150)}`);
+  }
+}
+
 export async function fetchPresets(): Promise<BoatPreset[]> {
   try {
     const res = await fetch('/api/v1/presets');
-    if (!res.ok) throw new Error('Failed to fetch presets');
-    return await res.json();
+    return await parseApiResponse<BoatPreset[]>(res, 'Failed to fetch yacht presets');
   } catch (err) {
     console.warn('Fallback to local presets:', err);
     return [
@@ -125,10 +153,7 @@ export async function fetchBoatDetail(presetId: string, customBoats?: BoatPreset
   }
 
   const res = await fetch(`/api/v1/presets/${encodeURIComponent(presetId)}`);
-  if (!res.ok) {
-    throw new Error(`Failed to load specifications for yacht preset '${presetId}'`);
-  }
-  return await res.json();
+  return await parseApiResponse<BoatDetail>(res, `Failed to load specifications for yacht preset '${presetId}'`);
 }
 
 export async function fetchPolarMatrix(
@@ -148,11 +173,7 @@ export async function fetchPolarMatrix(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Failed to compute polar matrix: ${errText}`);
-  }
-  return await res.json();
+  return await parseApiResponse<SolveMatrixResponse>(res, 'Failed to compute polar matrix');
 }
 
 export async function fetchPlotImageBlob(
@@ -281,12 +302,7 @@ export async function calculateRoute(params: {
     }),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || 'Routing calculation failed');
-  }
-
-  return await res.json();
+  return await parseApiResponse<RouteResult>(res, 'Routing calculation failed');
 }
 
 export function parsePolFile(content: string, filename: string = 'custom_polar.pol'): SolveMatrixResponse {
@@ -597,11 +613,7 @@ export async function fetchWeatherGrid(params: {
     }),
   });
 
-  if (!res.ok) {
-    throw new Error('Failed to fetch weather grid');
-  }
-
-  return await res.json();
+  return await parseApiResponse<WeatherGridResponse>(res, 'Failed to fetch weather grid');
 }
 
 export async function fetchLandmaskPolygons(bounds?: {
@@ -616,8 +628,7 @@ export async function fetchLandmaskPolygons(bounds?: {
       url += `?min_lat=${bounds.minLat.toFixed(2)}&max_lat=${bounds.maxLat.toFixed(2)}&min_lon=${bounds.minLon.toFixed(2)}&max_lon=${bounds.maxLon.toFixed(2)}`;
     }
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch landmask polygons');
-    const data: LandmaskResponse = await res.json();
+    const data = await parseApiResponse<LandmaskResponse>(res, 'Failed to fetch landmask polygons');
     return data.polygons || [];
   } catch (err) {
     console.warn('Failed to fetch landmask polygons:', err);

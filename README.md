@@ -60,24 +60,50 @@ docker compose up -d --build
 - **Certificates**: Automatically provisioned, renewed, and persisted in the `sailboat_caddy_data` volume.
 - **Microservices**: Secured internally within Docker bridge network `routing-network`.
 
-### 2. Local Testing with Docker Compose
+### 2. Local Testing with Docker Compose (Production Build)
 
-For local testing, simply run:
+For testing the production build with Caddy reverse proxy:
 ```bash
 docker compose up --build
 ```
 Access the application at [http://localhost](http://localhost) or [https://localhost](https://localhost).
 
-To expose individual microservice ports directly for local development (`:8000`, `:8080`, `:3333`):
+---
+
+## Fast Developer Workflows (Vite Hot-Reloading)
+
+### Option 1: Backend in Docker + Vite on Host (Recommended ⚡)
+
+Keep the backend microservices (Go routing engine & Python VPP) running in Docker while running the frontend locally with Vite for instantaneous Hot Module Replacement (HMR):
+
+1. Start backend services in Docker (ports `8080` & `8000`):
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+pnpm dev:backend
+# or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up routing-service vpp-service
 ```
+
+2. Start the Vite frontend dev server:
+```bash
+pnpm dev
+```
+Open [http://localhost:3333](http://localhost:3333). Code changes to `services/frontend/src/` will reload instantly in your browser without restarting containers.
 
 ---
 
-## Local Development Setup
+### Option 2: Full Docker Stack with Live Reload
 
-### 1. Python VPP Service
+If you prefer running everything in Docker with live file sync:
+```bash
+pnpm dev:docker
+# or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+Open [http://localhost:3333](http://localhost:3333). Local frontend edits will hot-reload inside the container via volume mount.
+
+---
+
+### Option 3: Pure Local Development (No Docker)
+
+#### 1. Python VPP Service
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -87,18 +113,15 @@ pytest -v
 uvicorn vpp.api.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 2. Go Routing Service
+#### 2. Go Routing Service
 ```bash
 cd services/routing
 go test -v ./...
 PORT=8080 VPP_SERVICE_URL=http://localhost:8000 go run main.go
 ```
 
-### 3. Frontend Web Application
+#### 3. Frontend Web Application
 ```bash
-cd services/frontend
-pnpm install
-pnpm build
 pnpm dev
 ```
 

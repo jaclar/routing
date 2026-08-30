@@ -1,5 +1,11 @@
-# Development override: exposes internal services directly to host ports for debugging
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Development override: exposes internal services directly to host ports and enables Vite HMR
+# Usage:
+#   1. Backend in Docker + Vite on Host (Fastest & most ergonomic):
+#      pnpm dev:backend   (or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up routing-service vpp-service)
+#      pnpm dev           (in another terminal: runs Vite with instant HMR on http://localhost:3333)
+#
+#   2. Full stack in Docker with live reload:
+#      pnpm dev:docker    (or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up)
 
 services:
   vpp-service:
@@ -11,5 +17,14 @@ services:
       - "8080:8080"
 
   frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./services/frontend:/app
+      - /app/node_modules
     ports:
-      - "3333:80"
+      - "3333:3333"
+    environment:
+      - ROUTING_SERVICE_URL=http://routing-service:8080
+      - VPP_SERVICE_URL=http://vpp-service:8000
