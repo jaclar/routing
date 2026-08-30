@@ -529,46 +529,38 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({ routeResul
                   <th>Category</th>
                   <th>Metric</th>
                   <th>Value</th>
-                  <th>Details & Context</th>
                 </tr>
               </thead>
               <tbody>
                 {/* 1. Start Time */}
-                <tr>
+                <tr title={`Departure timestamp (ISO: ${routeResult.start_time})`}>
                   <td className="row-category" rowSpan={3}>
-                    <Clock size={16} /> Time & Schedule
+                    <Clock size={16} /> Time &amp; Schedule
                   </td>
                   <td className="metric-label">Start Time</td>
                   <td className="metric-value font-mono">
                     {stats.startDate.toUTCString().replace(' GMT', ' UTC')}
                   </td>
-                  <td className="metric-desc">Departure timestamp (ISO: {routeResult.start_time})</td>
                 </tr>
 
                 {/* 2. Duration */}
-                <tr>
+                <tr title={`Total elapsed sailing time across ${routeResult.waypoints.length} isochrone steps`}>
                   <td className="metric-label">Passage Duration</td>
                   <td className="metric-value font-mono highlight-duration">
                     {stats.formattedDuration}
                   </td>
-                  <td className="metric-desc">
-                    Total elapsed sailing time across {routeResult.waypoints.length} isochrone steps
-                  </td>
                 </tr>
 
                 {/* 3. Arrival Time */}
-                <tr>
+                <tr title={`Estimated arrival at destination (Remaining dist: ${routeResult.waypoints[routeResult.waypoints.length - 1].distance_to_dest_nm.toFixed(2)} NM)`}>
                   <td className="metric-label">Arrival Time</td>
                   <td className="metric-value font-mono">
                     {stats.arrivalDate.toUTCString().replace(' GMT', ' UTC')}
                   </td>
-                  <td className="metric-desc">
-                    Estimated arrival at destination (Remaining dist: {routeResult.waypoints[routeResult.waypoints.length - 1].distance_to_dest_nm.toFixed(2)} NM)
-                  </td>
                 </tr>
 
                 {/* 4. Points of Sail Breakdowns */}
-                <tr>
+                <tr title={`Beating / Close-hauled (TWA < 60°) • ${stats.upwindDist.toFixed(1)} NM sailed`}>
                   <td className="row-category" rowSpan={3}>
                     <Compass size={16} /> Points of Sail
                   </td>
@@ -578,37 +570,28 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({ routeResul
                   <td className="metric-value font-mono text-cyan">
                     {stats.pctUpwind.toFixed(1)}%
                   </td>
-                  <td className="metric-desc">
-                    Beating / Close-hauled (TWA &lt; 60°) • {stats.upwindDist.toFixed(1)} NM sailed
-                  </td>
                 </tr>
 
-                <tr>
+                <tr title={`Beam & Broad Reach (60° ≤ TWA < 120°) • ${stats.reachingDist.toFixed(1)} NM sailed`}>
                   <td className="metric-label">
                     <span className="pos-indicator pos-reaching"></span> Percentage Reaching
                   </td>
                   <td className="metric-value font-mono text-emerald">
                     {stats.pctReaching.toFixed(1)}%
                   </td>
-                  <td className="metric-desc">
-                    Beam &amp; Broad Reach (60° &le; TWA &lt; 120°) • {stats.reachingDist.toFixed(1)} NM sailed
-                  </td>
                 </tr>
 
-                <tr>
+                <tr title={`Running (TWA ≥ 120°) • ${stats.downwindDist.toFixed(1)} NM sailed`}>
                   <td className="metric-label">
                     <span className="pos-indicator pos-downwind"></span> Percentage Downwind
                   </td>
                   <td className="metric-value font-mono text-purple">
                     {stats.pctDownwind.toFixed(1)}%
                   </td>
-                  <td className="metric-desc">
-                    Running (TWA &ge; 120°) • {stats.downwindDist.toFixed(1)} NM sailed
-                  </td>
                 </tr>
 
                 {/* 5. Wind Speed Telemetry */}
-                <tr>
+                <tr title="Minimum True Wind Speed encountered on passage">
                   <td className="row-category" rowSpan={3}>
                     <Wind size={16} /> Wind Speed (TWS)
                   </td>
@@ -616,27 +599,24 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({ routeResul
                   <td className="metric-value font-mono text-emerald">
                     {stats.minWind.toFixed(1)} kts
                   </td>
-                  <td className="metric-desc">Minimum True Wind Speed encountered on passage</td>
                 </tr>
 
-                <tr>
+                <tr title="Peak gust/breeze condition encountered">
                   <td className="metric-label">Highest Wind</td>
                   <td className="metric-value font-mono text-warning">
                     {stats.maxWind.toFixed(1)} kts
                   </td>
-                  <td className="metric-desc">Peak gust/breeze condition encountered</td>
                 </tr>
 
-                <tr>
+                <tr title="Mean True Wind Speed over full route">
                   <td className="metric-label">Average Wind</td>
                   <td className="metric-value font-mono text-accent">
                     {stats.avgWind.toFixed(1)} kts
                   </td>
-                  <td className="metric-desc">Mean True Wind Speed over full route</td>
                 </tr>
 
                 {/* 6. Boat Performance Metrics */}
-                <tr>
+                <tr title={`Mean speed over ground (Max: ${stats.maxSOG.toFixed(2)} kts)`}>
                   <td className="row-category" rowSpan={3}>
                     <Gauge size={16} /> Boat Performance
                   </td>
@@ -644,24 +624,19 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({ routeResul
                   <td className="metric-value font-mono text-accent">
                     {routeResult.average_speed_kts.toFixed(2)} kts
                   </td>
-                  <td className="metric-desc">Mean speed over ground (Max: {stats.maxSOG.toFixed(2)} kts)</td>
                 </tr>
 
-                <tr>
+                <tr title="Hydrodynamic heel stability estimate from VPP matrix">
                   <td className="metric-label">Estimated Heel Angle</td>
                   <td className="metric-value font-mono text-warning">
                     Avg: {stats.avgHeel.toFixed(1)}° / Max: {stats.maxHeel.toFixed(1)}°
                   </td>
-                  <td className="metric-desc">Hydrodynamic heel stability estimate from VPP matrix</td>
                 </tr>
 
-                <tr>
-                  <td className="metric-label">Maneuvers & Penalties</td>
+                <tr title={`Tack penalty: ${routeResult.tack_penalty_minutes}m, Gybe penalty: ${routeResult.gybe_penalty_minutes}m`}>
+                  <td className="metric-label">Maneuvers &amp; Penalties</td>
                   <td className="metric-value font-mono">
                     {routeResult.total_tacks} Tacks, {routeResult.total_gybes} Gybes
-                  </td>
-                  <td className="metric-desc">
-                    Tack penalty: {routeResult.tack_penalty_minutes}m, Gybe penalty: {routeResult.gybe_penalty_minutes}m
                   </td>
                 </tr>
               </tbody>
