@@ -12,6 +12,8 @@ import {
   Edit2,
   X,
   Check,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 
 export type AnimationSpeed = 0.5 | 1 | 2;
@@ -45,6 +47,9 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [speedMultiplier, setSpeedMultiplier] = useState<AnimationSpeed>(1);
+
+  // Mobile drawer expanded state (default collapsed on mobile)
+  const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(false);
 
   // State for Departure Time Change Dialog Modal
   const [isDateModalOpen, setIsDateModalOpen] = useState<boolean>(false);
@@ -227,10 +232,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     }
   };
 
-  // If no route calculated yet: render the clean departure & calculate dock
+  // If no route calculated yet: render the bottom panel with departure & calculate button
   if (!routeResult) {
     return (
-      <div className="timeline-bar uncalculated-dock">
+      <div className="timeline-bar uncalculated-dock mobile-bottom-sheet">
         <div className="uncalculated-dock-inner">
           
           {/* Departure Date & Time */}
@@ -256,7 +261,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             {loading ? (
               <>
                 <RotateCw size={16} className="animate-spin" />
-                <span>Propagating Isochrones...</span>
+                <span>Propagating...</span>
               </>
             ) : (
               <>
@@ -276,7 +281,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   const progressPercent = totalWaypoints > 1 ? ((currentIndex / (totalWaypoints - 1)) * 100).toFixed(0) : '0';
 
   return (
-    <div className="timeline-bar">
+    <div className={`timeline-bar mobile-bottom-sheet ${isMobileExpanded ? 'mobile-expanded' : 'mobile-collapsed'}`}>
       {/* Top Playback & Control Strip */}
       <div className="timeline-controls">
         {/* Play/Pause Button */}
@@ -325,8 +330,8 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           <SkipForward size={18} />
         </button>
 
-        {/* Speed Switcher (0.5x, 1x, 2x) */}
-        <div className="speed-controls-group">
+        {/* Desktop Speed Switcher (0.5x, 1x, 2x) */}
+        <div className="speed-controls-group desktop-only-control">
           <Clock size={13} className="speed-clock-icon" />
           <div className="speed-segmented-bar">
             <button
@@ -359,8 +364,8 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
         {/* Progress % */}
         <span className="timeline-progress-badge">{progressPercent}%</span>
 
-        {/* Action Buttons: Recalculate (active on changed departure) & GPX Export */}
-        <div className="dock-actions-cluster">
+        {/* Desktop Action Buttons: Recalculate & GPX Export */}
+        <div className="dock-actions-cluster desktop-only-control">
           <button
             type="button"
             className={`dock-recalc-btn ${isRecalcActive ? 'active-changed' : 'disabled'}`}
@@ -386,11 +391,118 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             <span>GPX</span>
           </button>
         </div>
+
+        {/* Mobile Drawer Expand Toggle Button (Chevron Up/Down) */}
+        <button
+          type="button"
+          className="mobile-expand-toggle-btn"
+          onClick={() => setIsMobileExpanded(!isMobileExpanded)}
+          title={isMobileExpanded ? 'Collapse controls' : 'Expand speed, departure & passage settings'}
+        >
+          {isMobileExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+        </button>
       </div>
 
-      {/* Real-time Passage Telemetry Grid */}
+      {/* Mobile Expanded Settings Drawer */}
+      {isMobileExpanded && (
+        <div className="mobile-expanded-drawer">
+          {/* Row 1: Speed selector centered under scrubber */}
+          <div className="mobile-speed-centered-row">
+            <div className="speed-segmented-bar">
+              <button
+                type="button"
+                className={`speed-pill-btn ${speedMultiplier === 0.5 ? 'active' : ''}`}
+                onClick={() => handleSpeedChange(0.5)}
+              >
+                0.5x
+              </button>
+              <button
+                type="button"
+                className={`speed-pill-btn ${speedMultiplier === 1 ? 'active' : ''}`}
+                onClick={() => handleSpeedChange(1)}
+              >
+                1x
+              </button>
+              <button
+                type="button"
+                className={`speed-pill-btn ${speedMultiplier === 2 ? 'active' : ''}`}
+                onClick={() => handleSpeedChange(2)}
+              >
+                2x
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Departure, Recalculate, and GPX buttons in one line */}
+          <div className="mobile-actions-unified-row">
+            <button
+              type="button"
+              className="mobile-unified-btn btn-departure-trigger"
+              onClick={handleOpenDateModal}
+              title="Change departure time"
+            >
+              <Calendar size={13} />
+              <span>Departure</span>
+            </button>
+
+            <button
+              type="button"
+              className={`dock-recalc-btn mobile-unified-btn ${isRecalcActive ? 'active-changed' : 'disabled'}`}
+              onClick={onCalculateRoute}
+              disabled={!isRecalcActive || loading}
+              title={isRecalcActive ? 'Click to recalculate route' : 'Route is up to date'}
+            >
+              <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
+              <span>{loading ? 'Solving...' : 'Recalculate'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="dock-gpx-btn mobile-unified-btn"
+              onClick={handleExportGPX}
+              title="Download GPX route"
+            >
+              <Download size={13} />
+              <span>GPX</span>
+            </button>
+          </div>
+
+          {/* Row 3: Current passage state displayed smaller below */}
+          {currentWp && (
+            <div className="mobile-compact-passage-state">
+              <div className="compact-state-chip">
+                <span className="compact-state-label">SPEED</span>
+                <strong className="compact-state-val text-sky">{currentWp.boat_speed_kts.toFixed(1)}k</strong>
+              </div>
+              <div className="compact-state-chip">
+                <span className="compact-state-label">HDG</span>
+                <strong className="compact-state-val">{currentWp.heading_deg.toFixed(0)}°</strong>
+              </div>
+              <div className="compact-state-chip">
+                <span className="compact-state-label">WIND</span>
+                <strong className="compact-state-val">{currentWp.tws_kts.toFixed(1)}k @ {currentWp.twd_deg.toFixed(0)}°</strong>
+              </div>
+              <div className="compact-state-chip">
+                <span className="compact-state-label">SAIL</span>
+                <strong className="compact-state-val text-sky">{pos.name} ({pos.tackShort})</strong>
+              </div>
+              <div className="compact-state-chip">
+                <span className="compact-state-label">HEEL</span>
+                <strong
+                  className="compact-state-val"
+                  style={{ color: currentWp.estimated_heel_deg > 20 ? '#f59e0b' : '#10b981' }}
+                >
+                  {currentWp.estimated_heel_deg.toFixed(1)}°
+                </strong>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Desktop-Only Real-time Passage Telemetry Grid (Hidden on Mobile) */}
       {currentWp && (
-        <div className="timeline-stats">
+        <div className="timeline-stats desktop-only-telemetry">
           {/* Clickable Departure Time Box with Edit Pencil Indicator */}
           <div
             className="stat-box clickable-stat-box"
@@ -398,7 +510,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             title="Click to change departure start time"
           >
             <div className="stat-label-with-icon">
-              <span className="stat-label">DEPARTURE</span>
+              <span className="stat-label">DEPARTURE TIME</span>
               <Edit2 size={10} color="#38bdf8" />
             </div>
             <span className="stat-value time-stat-clickable" style={{ fontSize: '0.75rem' }}>

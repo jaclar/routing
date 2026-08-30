@@ -3036,3 +3036,429 @@ body {
   border-top: 1px solid var(--border-color);
   padding-top: 14px;
 }
+
+/* ==========================================================================
+   Mobile-Optimized Floating Overlay Controls & Bottom Sheet Panel
+   ========================================================================== */
+
+.floating-overlay-icon-btn {
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  color: var(--accent);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+}
+
+.floating-overlay-icon-btn:hover {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+}
+
+.btn-overlay-minimize {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-overlay-minimize:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   Map Layers Wind Strength Gradient Bar & Timestamp
+   ========================================================================== */
+
+.wind-scale-container {
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  padding-top: 8px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wind-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: #94a3b8;
+  font-family: var(--font-mono);
+}
+
+.wind-scale-gradient-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(
+    to right,
+    rgb(29, 78, 216) 0%,
+    rgb(16, 185, 129) 20%,
+    rgb(250, 204, 21) 40%,
+    rgb(249, 115, 22) 60%,
+    rgb(239, 68, 68) 80%,
+    rgb(168, 85, 247) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.active-forecast-timestamp {
+  font-size: 0.72rem;
+  color: #38bdf8;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  padding-top: 6px;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.layer-toggles-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.layer-toggles-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.04em;
+}
+
+.mobile-expand-toggle-btn {
+  display: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.mobile-expand-toggle-btn:hover {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.mobile-expanded-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-color);
+  animation: slideDown 0.2s ease-out;
+}
+
+.mobile-speed-centered-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.mobile-actions-unified-row {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 0.8fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.mobile-unified-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-departure-trigger {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--accent);
+  transition: all 0.15s ease;
+}
+
+.btn-departure-trigger:hover {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.mobile-compact-passage-state {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.compact-state-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.compact-state-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.compact-state-val {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #f8fafc;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+/* ==========================================================================
+   Mobile Responsive Rules (<= 768px)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* Top navigation cluster */
+  .top-navigation-cluster {
+    top: 12px;
+    left: 12px;
+    gap: 8px;
+    max-width: calc(100vw - 24px);
+  }
+
+  .standalone-hamburger-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-tabs-bar {
+    padding: 3px;
+    gap: 4px;
+  }
+
+  .tab-nav-btn {
+    padding: 5px 9px;
+    font-size: 0.75rem;
+    gap: 4px;
+  }
+
+  .tab-nav-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Map top-right overlay - placed under the tabs */
+  .map-top-right-overlay {
+    top: 66px;
+    right: 12px;
+    gap: 8px;
+    align-items: flex-end;
+    width: auto;
+    max-width: calc(100vw - 24px);
+    z-index: 1050;
+  }
+
+  .waypoint-controls-card,
+  .layer-toggles {
+    width: 280px;
+    max-width: calc(100vw - 24px);
+  }
+
+  /* Scrubber as a bottom panel, pinned to the bottom of the screen (not floating) */
+  .timeline-bar.mobile-bottom-sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    transform: none;
+    border-radius: 18px 18px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 10px 14px 14px 14px;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6);
+  }
+
+  .uncalculated-dock.mobile-bottom-sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    transform: none;
+    border-radius: 18px 18px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 12px 14px 14px 14px;
+  }
+
+  .uncalculated-dock-inner {
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .dock-time-input {
+    font-size: 0.78rem;
+    padding: 6px 8px;
+    height: 38px;
+  }
+
+  .dock-calc-btn {
+    padding: 0 16px;
+    font-size: 0.85rem;
+  }
+
+  /* Desktop-only controls hidden in the top strip on mobile */
+  .desktop-only-control {
+    display: none !important;
+  }
+
+  /* Telemetry stats (boat speed, heading, etc.) NOT shown at all on mobile */
+  .desktop-only-telemetry,
+  .timeline-stats {
+    display: none !important;
+  }
+
+  /* Mobile expand toggle button visible */
+  .mobile-expand-toggle-btn {
+    display: flex !important;
+  }
+
+  .timeline-controls {
+    gap: 8px;
+    width: 100%;
+  }
+
+  .play-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .timeline-nav-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .timeline-progress-badge {
+    font-size: 0.72rem;
+    padding: 2px 6px;
+  }
+
+  /* Settings view sections fit 100% of mobile screen width */
+  .settings-page-container {
+    padding: 68px 12px 32px 12px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .settings-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .settings-header-actions {
+    width: 100%;
+  }
+
+  .settings-header-actions .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .settings-content-grid {
+    grid-template-columns: 1fr;
+    width: 100%;
+    max-width: 100%;
+    gap: 12px;
+    box-sizing: border-box;
+  }
+
+  .settings-card {
+    width: 100%;
+    max-width: 100%;
+    padding: 14px 12px;
+    box-sizing: border-box;
+  }
+
+  .boat-specs-quad-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .penalties-sliders-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .vpp-launcher-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .btn-open-vpp {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .vpp-page-header {
+    left: 12px;
+    top: 60px;
+  }
+
+  .passage-stats-page-container {
+    padding: 68px 12px 24px 12px;
+  }
+}

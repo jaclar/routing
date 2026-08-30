@@ -1,5 +1,5 @@
-import React from 'react';
-import { Layers, Wind, Eye, Clock, ShieldAlert } from 'lucide-react';
+import React, { useState } from 'react';
+import { Layers, Wind, Eye, Clock, ShieldAlert, Minus } from 'lucide-react';
 
 interface LayerTogglesProps {
   showIsochrones: boolean;
@@ -20,6 +20,11 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   onToggleLandmask,
   activeTime,
 }) => {
+  // Minimized by default on mobile screens (width <= 768px)
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+  });
+
   const formatTime = (iso?: string) => {
     if (!iso) return '';
     try {
@@ -30,10 +35,35 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     }
   };
 
+  // When collapsed (mobile default): show only the symbol
+  if (isCollapsed) {
+    return (
+      <button
+        type="button"
+        className="floating-overlay-icon-btn"
+        onClick={() => setIsCollapsed(false)}
+        title="Open Map Layers"
+      >
+        <Layers size={18} color="#38bdf8" />
+      </button>
+    );
+  }
+
   return (
     <div className="layer-toggles">
-      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-        <Layers size={14} /> MAP LAYERS
+      <div className="layer-toggles-header">
+        <div className="layer-toggles-title">
+          <Layers size={14} color="#38bdf8" />
+          <span>MAP LAYERS</span>
+        </div>
+        <button
+          type="button"
+          className="btn-overlay-minimize"
+          onClick={() => setIsCollapsed(true)}
+          title="Minimize layers panel"
+        >
+          <Minus size={14} />
+        </button>
       </div>
 
       <label className="toggle-item">
@@ -55,7 +85,7 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
           style={{ accentColor: '#10b981' }}
         />
         <Wind size={14} color="#10b981" />
-        <span>GFS Wind & Barbs</span>
+        <span>GFS Wind &amp; Barbs</span>
       </label>
 
       <label className="toggle-item">
@@ -70,8 +100,8 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
       </label>
 
       {showWindGrid && (
-        <div style={{ borderTop: '1px solid rgba(148, 163, 184, 0.15)', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+        <div className="wind-scale-container">
+          <div className="wind-scale-labels">
             <span>0k</span>
             <span>10k</span>
             <span>20k</span>
@@ -79,20 +109,12 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
             <span>40k</span>
             <span>50k+</span>
           </div>
-          <div
-            style={{
-              height: '8px',
-              borderRadius: '4px',
-              background: 'linear-gradient(to right, rgb(29,78,216) 0%, rgb(16,185,129) 20%, rgb(250,204,21) 40%, rgb(249,115,22) 60%, rgb(239,68,68) 80%, rgb(168,85,247) 100%)',
-              border: '1px solid rgba(255, 255, 255, 0.25)',
-              boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)',
-            }}
-          />
+          <div className="wind-scale-gradient-bar" />
         </div>
       )}
 
       {activeTime && showWindGrid && (
-        <div style={{ fontSize: '0.7rem', color: '#38bdf8', borderTop: '1px solid rgba(148, 163, 184, 0.15)', paddingTop: '6px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div className="active-forecast-timestamp">
           <Clock size={12} />
           <span>{formatTime(activeTime)}</span>
         </div>
@@ -100,3 +122,5 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     </div>
   );
 };
+
+export default LayerToggles;

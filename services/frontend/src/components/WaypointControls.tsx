@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Point } from '../types';
 import { ROUTE_PRESETS, calcDirectDistanceNM, getSaneDefaultTimeStepHours } from '../services/api';
-import { Navigation, Flag, Crosshair } from 'lucide-react';
+import { Navigation, Flag, Crosshair, Minus } from 'lucide-react';
 
 interface WaypointControlsProps {
   startPoint: Point;
@@ -22,6 +22,11 @@ export const WaypointControls: React.FC<WaypointControlsProps> = ({
   onSelectPlacementMode,
   onTimeStepChange,
 }) => {
+  // Minimized by default on mobile screens (width <= 768px)
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+  });
+
   const directDistNM = calcDirectDistanceNM(startPoint, destPoint);
 
   const matchingPresetIdx = ROUTE_PRESETS.findIndex(
@@ -75,15 +80,37 @@ export const WaypointControls: React.FC<WaypointControlsProps> = ({
     }
   };
 
+  // When collapsed (mobile default): show only the symbol with distance badge
+  if (isCollapsed) {
+    return (
+      <button
+        type="button"
+        className="floating-overlay-icon-btn"
+        onClick={() => setIsCollapsed(false)}
+        title="Open Passage Controls"
+      >
+        <Navigation size={18} color="#38bdf8" />
+      </button>
+    );
+  }
+
   return (
     <div className="waypoint-controls-card">
-      {/* Header */}
+      {/* Header: PASSAGE + distance badge on left, Minus minimize on far right */}
       <div className="waypoint-controls-header">
         <div className="waypoint-controls-title">
           <Navigation size={14} color="#38bdf8" />
           <span>PASSAGE</span>
+          <span className="waypoint-dist-badge">{directDistNM.toFixed(1)} NM</span>
         </div>
-        <span className="waypoint-dist-badge">{directDistNM.toFixed(1)} NM</span>
+        <button
+          type="button"
+          className="btn-overlay-minimize"
+          onClick={() => setIsCollapsed(true)}
+          title="Minimize passage panel"
+        >
+          <Minus size={14} />
+        </button>
       </div>
 
       {/* Preset Selector */}
