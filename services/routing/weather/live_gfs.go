@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ type LiveNOAAGFSEngine struct {
 	fallback     *GFSWeatherEngine
 	httpClient   *http.Client
 	forecastDays int
+	apiBaseURL   string
 }
 
 type cachedGrid struct {
@@ -39,6 +41,8 @@ type OpenMeteoGFSResponse struct {
 
 // NewLiveNOAAGFSEngine creates a new live NOAA GFS provider with fallback to realistic physics.
 func NewLiveNOAAGFSEngine(startTime time.Time) *LiveNOAAGFSEngine {
+	baseURL := strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "https://api.open-meteo.com")), "/")
+
 	return &LiveNOAAGFSEngine{
 		grids:    make(map[string]*cachedGrid),
 		fallback: NewRealisticGFSEngine(startTime),
@@ -46,7 +50,15 @@ func NewLiveNOAAGFSEngine(startTime time.Time) *LiveNOAAGFSEngine {
 			Timeout: 4 * time.Second,
 		},
 		forecastDays: 16,
+		apiBaseURL:   baseURL,
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
 }
 
 // FetchRegion downloads and builds a 4D WeatherGrid from live NOAA GFS data for the specified bounding box.
@@ -106,7 +118,8 @@ func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 	}
 
 	apiURL := fmt.Sprintf(
-		"https://api.open-meteo.com/v1/gfs?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+		"%s/v1/gfs?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+		e.apiBaseURL,
 		strings.Join(lats, ","),
 		strings.Join(lons, ","),
 		e.forecastDays,

@@ -19,43 +19,48 @@
         -Server
     }
 
+    # Open-Meteo Compatible Weather & Grid API
+    handle /v1/* {
+        reverse_proxy meteo-service:4081
+    }
+
     # Proxy Routing & Weather API to Go routing service
     handle /api/v1/route* {
-        reverse_proxy routing-service:8080
+        reverse_proxy routing-service:4080
     }
 
     handle /api/v1/weather* {
-        reverse_proxy routing-service:8080
+        reverse_proxy routing-service:4080
     }
 
     handle /api/v1/landmask* {
-        reverse_proxy routing-service:8080
+        reverse_proxy routing-service:4080
     }
 
     # Proxy VPP & Polar API to Python FastAPI VPP service
     handle /api/v1/presets* {
-        reverse_proxy vpp-service:8000
+        reverse_proxy vpp-service:4001
     }
 
     handle /api/v1/solve* {
-        reverse_proxy vpp-service:8000
+        reverse_proxy vpp-service:4001
     }
 
     handle /api/v1/plot* {
-        reverse_proxy vpp-service:8000
+        reverse_proxy vpp-service:4001
     }
 
     handle /api/v1/export* {
-        reverse_proxy vpp-service:8000
+        reverse_proxy vpp-service:4001
     }
 
     # Health check endpoints
     handle /health {
-        reverse_proxy routing-service:8080
+        reverse_proxy routing-service:4080
     }
 
     handle /api/v1/health* {
-        reverse_proxy routing-service:8080
+        reverse_proxy routing-service:4080
     }
 
     # Proxy all frontend requests & SPA routes to the React frontend container

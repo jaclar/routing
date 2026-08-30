@@ -17,9 +17,10 @@ RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /app/routing-server /app/routing-server
 
-EXPOSE 8080
+EXPOSE 4080
 
-ENV PORT=8080
-ENV VPP_SERVICE_URL=http://vpp-service:8000
+ENV PORT=4080
+ENV VPP_SERVICE_URL=http://vpp-service:4001
+ENV METEO_SERVICE_URL=http://meteo-service:4081
 
 CMD ["/app/routing-server"]

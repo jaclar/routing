@@ -3,7 +3,7 @@
 import uvicorn
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
+def run_server(host: str = "0.0.0.0", port: int = 4001, reload: bool = False):
     """Run the VPP FastAPI service using uvicorn."""
     uvicorn.run(
         "vpp.api.app:app",
@@ -14,4 +14,4 @@ def run_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = False):
 
 
 if __name__ == "__main__":
-    run_server(host="127.0.0.1", port=8000)
+    run_server(host="127.0.0.1", port=4001)

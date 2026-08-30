@@ -11,12 +11,12 @@ import (
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "4080"
 	}
 
 	vppURL := os.Getenv("VPP_SERVICE_URL")
 	if vppURL == "" {
-		vppURL = "http://localhost:8000"
+		vppURL = "http://localhost:4001"
 	}
 
 	server := api.NewServer(vppURL)

@@ -16,9 +16,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir hatchling && \
     pip install --no-cache-dir -e .
 
-EXPOSE 8000
+EXPOSE 4001
 
-ENV PORT=8000
+ENV PORT=4001
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "vpp.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "vpp.api.app:app", "--host", "0.0.0.0", "--port", "4001"]

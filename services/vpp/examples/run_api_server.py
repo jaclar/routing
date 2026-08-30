@@ -11,7 +11,7 @@ if str(repo_root) not in sys.path:
 from vpp.api.server import run_server
 
 if __name__ == "__main__":
-    print("Starting Sailboat VPP FastAPI service on http://127.0.0.1:8000 ...")
-    print("Interactive Swagger documentation: http://127.0.0.1:8000/docs")
-    print("ReDoc documentation: http://127.0.0.1:8000/redoc")
-    run_server(host="127.0.0.1", port=8000, reload=False)
+    print("Starting Sailboat VPP FastAPI service on http://127.0.0.1:4001 ...")
+    print("Interactive Swagger documentation: http://127.0.0.1:4001/docs")
+    print("ReDoc documentation: http://127.0.0.1:4001/redoc")
+    run_server(host="127.0.0.1", port=4001, reload=False)
