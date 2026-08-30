@@ -231,7 +231,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   width: calc(100% - 480px);
-  max-width: 900px;
+  max-width: 960px;
   background: var(--bg-panel);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -376,6 +376,218 @@ body {
   min-width: 42px;
   text-align: center;
   flex-shrink: 0;
+}
+
+/* ==========================================
+   Compact Passage Timeline Table
+   ========================================== */
+.timeline-table-root {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-table-labels {
+  width: 44px;
+  min-width: 44px;
+  flex-shrink: 0;
+  background: rgba(15, 23, 42, 0.95);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+}
+
+.timeline-label-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.timeline-label-cell:last-child {
+  border-bottom: none;
+}
+
+.timeline-label-cell.label-time {
+  height: 25px;
+}
+
+.timeline-label-cell.label-wind {
+  height: 22px;
+}
+
+.timeline-label-cell.label-boat {
+  height: 20px;
+}
+
+.timeline-label-cell.label-twa-arrow {
+  height: 18px;
+}
+
+.timeline-label-cell.label-twa-deg {
+  height: 17px;
+}
+
+.timeline-table-viewport-wrapper {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
+.timeline-table-indicator-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.9), 0 0 16px rgba(56, 189, 248, 0.4);
+  z-index: 10;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.indicator-pointer-top {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #38bdf8;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+.indicator-pointer-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid #38bdf8;
+  filter: drop-shadow(0 -1px 2px rgba(0, 0, 0, 0.8));
+}
+
+.timeline-table-scroll-track {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.timeline-table-scroll-track::-webkit-scrollbar {
+  display: none;
+}
+
+.timeline-table-content {
+  display: flex;
+  height: 100%;
+}
+
+.timeline-col {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.timeline-col:hover {
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.timeline-col.col-active {
+  background: rgba(56, 189, 248, 0.18);
+}
+
+.timeline-data-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: var(--font-mono);
+  box-sizing: border-box;
+}
+
+.timeline-data-cell:last-child {
+  border-bottom: none;
+}
+
+.timeline-data-cell.cell-time {
+  height: 25px;
+  gap: 1px;
+}
+
+.time-elapsed-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  line-height: 1;
+}
+
+.time-clock-tag {
+  font-size: 0.54rem;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.timeline-data-cell.cell-wind {
+  height: 22px;
+}
+
+.wind-speed-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 4px;
+  line-height: 1.1;
+  min-width: 28px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.timeline-data-cell.cell-boat {
+  height: 20px;
+}
+
+.boat-speed-val {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #38bdf8;
+  line-height: 1;
+}
+
+.timeline-data-cell.cell-twa-arrow {
+  height: 18px;
+}
+
+.timeline-data-cell.cell-twa-deg {
+  height: 17px;
+}
+
+.twa-deg-val {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .timeline-stats {
@@ -3353,40 +3565,43 @@ body {
     font-size: 0.85rem;
   }
 
-  /* Desktop-only controls hidden in the top strip on mobile */
+  /* Desktop-only controls hidden in the top strip on mobile (speed switcher) */
   .desktop-only-control {
     display: none !important;
   }
 
-  /* Telemetry stats (boat speed, heading, etc.) NOT shown at all on mobile */
-  .desktop-only-telemetry,
-  .timeline-stats {
-    display: none !important;
+  .dock-actions-cluster {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 2px;
   }
 
-  /* Mobile expand toggle button visible */
-  .mobile-expand-toggle-btn {
-    display: flex !important;
+  .dock-recalc-btn,
+  .dock-gpx-btn {
+    padding: 4px 7px;
+    font-size: 0.72rem;
   }
 
   .timeline-controls {
-    gap: 8px;
+    gap: 6px;
     width: 100%;
   }
 
   .play-btn {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
   }
 
   .timeline-nav-btn {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
   }
 
   .timeline-progress-badge {
-    font-size: 0.72rem;
-    padding: 2px 6px;
+    font-size: 0.68rem;
+    padding: 2px 5px;
+    min-width: 34px;
   }
 
   /* Settings view sections fit 100% of mobile screen width */

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RouteResult } from '../types';
+import { TimelineTable } from './TimelineTable';
 import {
   Play,
   Pause,
@@ -9,11 +10,8 @@ import {
   Download,
   RotateCw,
   Calendar,
-  Edit2,
   X,
   Check,
-  ChevronUp,
-  ChevronDown,
 } from 'lucide-react';
 
 export type AnimationSpeed = 0.5 | 1 | 2;
@@ -48,15 +46,11 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [speedMultiplier, setSpeedMultiplier] = useState<AnimationSpeed>(1);
 
-  // Mobile drawer expanded state (default collapsed on mobile)
-  const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(false);
-
   // State for Departure Time Change Dialog Modal
   const [isDateModalOpen, setIsDateModalOpen] = useState<boolean>(false);
   const [tempDepartureTime, setTempDepartureTime] = useState<string>(departureTime);
 
   const totalWaypoints = routeResult ? routeResult.waypoints.length : 0;
-  const currentWp = routeResult && routeResult.waypoints[currentIndex] ? routeResult.waypoints[currentIndex] : null;
   const durationSec = SPEED_TO_DURATION_SEC[speedMultiplier];
 
   const animRef = useRef<number | null>(null);
@@ -149,34 +143,6 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       }
     };
   }, [isPlaying, totalWaypoints, onIndexChange]);
-
-  const formatDate = (isoStr: string) => {
-    try {
-      const d = new Date(isoStr);
-      return d.toUTCString().replace('GMT', 'UTC').slice(0, 22);
-    } catch {
-      return isoStr;
-    }
-  };
-
-  const getPointOfSail = (twa: number, heading: number, twd: number) => {
-    let rel = (twd - heading) % 360;
-    if (rel > 180) rel -= 360;
-    if (rel < -180) rel += 360;
-
-    const tack = rel >= 0 ? 'Starboard Tack' : 'Port Tack';
-    const tackShort = rel >= 0 ? 'Stbd' : 'Port';
-
-    let name = 'Close-Hauled';
-    if (twa < 28) name = 'In Irons (No-Go)';
-    else if (twa <= 55) name = 'Close-Hauled';
-    else if (twa <= 80) name = 'Close Reach';
-    else if (twa <= 110) name = 'Beam Reach';
-    else if (twa <= 150) name = 'Broad Reach';
-    else name = 'Running';
-
-    return { name, tack, tackShort };
-  };
 
   const handleExportGPX = () => {
     if (!routeResult) return;
@@ -277,11 +243,10 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   }
 
   // Active Route Scrubber View
-  const pos = currentWp ? getPointOfSail(currentWp.twa_deg, currentWp.heading_deg, currentWp.twd_deg) : { name: '', tackShort: '' };
   const progressPercent = totalWaypoints > 1 ? ((currentIndex / (totalWaypoints - 1)) * 100).toFixed(0) : '0';
 
   return (
-    <div className={`timeline-bar mobile-bottom-sheet ${isMobileExpanded ? 'mobile-expanded' : 'mobile-collapsed'}`}>
+    <div className="timeline-bar mobile-bottom-sheet">
       {/* Top Playback & Control Strip */}
       <div className="timeline-controls">
         {/* Play/Pause Button */}
@@ -364,18 +329,14 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
         {/* Progress % */}
         <span className="timeline-progress-badge">{progressPercent}%</span>
 
-        {/* Desktop Action Buttons: Recalculate & GPX Export */}
-        <div className="dock-actions-cluster desktop-only-control">
+        {/* Action Buttons: Recalculate (always active, pops up departure dialog) & GPX Export */}
+        <div className="dock-actions-cluster">
           <button
             type="button"
-            className={`dock-recalc-btn ${isRecalcActive ? 'active-changed' : 'disabled'}`}
-            onClick={onCalculateRoute}
-            disabled={!isRecalcActive || loading}
-            title={
-              isRecalcActive
-                ? 'Settings or departure time changed. Click to recalculate optimal route'
-                : 'Route is up to date with current parameters'
-            }
+            className={`dock-recalc-btn ${isRecalcActive ? 'active-changed' : ''}`}
+            onClick={handleOpenDateModal}
+            disabled={loading}
+            title="Change departure time & recalculate route"
           >
             <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
             <span>{loading ? 'Solving...' : 'Recalculate'}</span>
@@ -391,175 +352,14 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             <span>GPX</span>
           </button>
         </div>
-
-        {/* Mobile Drawer Expand Toggle Button (Chevron Up/Down) */}
-        <button
-          type="button"
-          className="mobile-expand-toggle-btn"
-          onClick={() => setIsMobileExpanded(!isMobileExpanded)}
-          title={isMobileExpanded ? 'Collapse controls' : 'Expand speed, departure & passage settings'}
-        >
-          {isMobileExpanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-        </button>
       </div>
 
-      {/* Mobile Expanded Settings Drawer */}
-      {isMobileExpanded && (
-        <div className="mobile-expanded-drawer">
-          {/* Row 1: Speed selector centered under scrubber */}
-          <div className="mobile-speed-centered-row">
-            <div className="speed-segmented-bar">
-              <button
-                type="button"
-                className={`speed-pill-btn ${speedMultiplier === 0.5 ? 'active' : ''}`}
-                onClick={() => handleSpeedChange(0.5)}
-              >
-                0.5x
-              </button>
-              <button
-                type="button"
-                className={`speed-pill-btn ${speedMultiplier === 1 ? 'active' : ''}`}
-                onClick={() => handleSpeedChange(1)}
-              >
-                1x
-              </button>
-              <button
-                type="button"
-                className={`speed-pill-btn ${speedMultiplier === 2 ? 'active' : ''}`}
-                onClick={() => handleSpeedChange(2)}
-              >
-                2x
-              </button>
-            </div>
-          </div>
-
-          {/* Row 2: Departure, Recalculate, and GPX buttons in one line */}
-          <div className="mobile-actions-unified-row">
-            <button
-              type="button"
-              className="mobile-unified-btn btn-departure-trigger"
-              onClick={handleOpenDateModal}
-              title="Change departure time"
-            >
-              <Calendar size={13} />
-              <span>Departure</span>
-            </button>
-
-            <button
-              type="button"
-              className={`dock-recalc-btn mobile-unified-btn ${isRecalcActive ? 'active-changed' : 'disabled'}`}
-              onClick={onCalculateRoute}
-              disabled={!isRecalcActive || loading}
-              title={isRecalcActive ? 'Click to recalculate route' : 'Route is up to date'}
-            >
-              <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
-              <span>{loading ? 'Solving...' : 'Recalculate'}</span>
-            </button>
-
-            <button
-              type="button"
-              className="dock-gpx-btn mobile-unified-btn"
-              onClick={handleExportGPX}
-              title="Download GPX route"
-            >
-              <Download size={13} />
-              <span>GPX</span>
-            </button>
-          </div>
-
-          {/* Row 3: Current passage state displayed smaller below */}
-          {currentWp && (
-            <div className="mobile-compact-passage-state">
-              <div className="compact-state-chip">
-                <span className="compact-state-label">SPEED</span>
-                <strong className="compact-state-val text-sky">{currentWp.boat_speed_kts.toFixed(1)}k</strong>
-              </div>
-              <div className="compact-state-chip">
-                <span className="compact-state-label">HDG</span>
-                <strong className="compact-state-val">{currentWp.heading_deg.toFixed(0)}°</strong>
-              </div>
-              <div className="compact-state-chip">
-                <span className="compact-state-label">WIND</span>
-                <strong className="compact-state-val">{currentWp.tws_kts.toFixed(1)}k @ {currentWp.twd_deg.toFixed(0)}°</strong>
-              </div>
-              <div className="compact-state-chip">
-                <span className="compact-state-label">SAIL</span>
-                <strong className="compact-state-val text-sky">{pos.name} ({pos.tackShort})</strong>
-              </div>
-              <div className="compact-state-chip">
-                <span className="compact-state-label">HEEL</span>
-                <strong
-                  className="compact-state-val"
-                  style={{ color: currentWp.estimated_heel_deg > 20 ? '#f59e0b' : '#10b981' }}
-                >
-                  {currentWp.estimated_heel_deg.toFixed(1)}°
-                </strong>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Desktop-Only Real-time Passage Telemetry Grid (Hidden on Mobile) */}
-      {currentWp && (
-        <div className="timeline-stats desktop-only-telemetry">
-          {/* Clickable Departure Time Box with Edit Pencil Indicator */}
-          <div
-            className="stat-box clickable-stat-box"
-            onClick={handleOpenDateModal}
-            title="Click to change departure start time"
-          >
-            <div className="stat-label-with-icon">
-              <span className="stat-label">DEPARTURE TIME</span>
-              <Edit2 size={10} color="#38bdf8" />
-            </div>
-            <span className="stat-value time-stat-clickable" style={{ fontSize: '0.75rem' }}>
-              {formatDate(departureTime || routeResult.start_time)}
-            </span>
-          </div>
-
-          <div className="stat-box">
-            <span className="stat-label">BOAT SPEED</span>
-            <span className="stat-value" style={{ color: '#38bdf8' }}>
-              {currentWp.boat_speed_kts.toFixed(2)} kts
-            </span>
-          </div>
-
-          <div className="stat-box">
-            <span className="stat-label">HEADING</span>
-            <span className="stat-value">{currentWp.heading_deg.toFixed(1)}°</span>
-          </div>
-
-          <div className="stat-box">
-            <span className="stat-label">TRUE WIND</span>
-            <span className="stat-value">
-              {currentWp.tws_kts.toFixed(1)} kts @ {currentWp.twd_deg.toFixed(0)}°
-            </span>
-          </div>
-
-          <div className="stat-box">
-            <span className="stat-label">TWA</span>
-            <span className="stat-value">{currentWp.twa_deg.toFixed(1)}°</span>
-          </div>
-
-          <div className="stat-box">
-            <span className="stat-label">POINT OF SAIL</span>
-            <span className="stat-value" style={{ color: '#38bdf8', fontSize: '0.8rem' }}>
-              {pos.name} <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>({pos.tackShort})</span>
-            </span>
-          </div>
-
-          <div className="stat-box">
-            <span className="stat-label">HEEL ANGLE</span>
-            <span
-              className="stat-value"
-              style={{ color: currentWp.estimated_heel_deg > 20 ? '#f59e0b' : '#10b981' }}
-            >
-              {currentWp.estimated_heel_deg.toFixed(1)}°
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Compact Passage Timeline Table Row (Displayed directly on desktop and mobile) */}
+      <TimelineTable
+        routeResult={routeResult}
+        currentIndex={currentIndex}
+        onIndexChange={onIndexChange}
+      />
 
       {/* Departure Time Change Modal Dialog */}
       {isDateModalOpen && (
