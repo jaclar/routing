@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jaclar/routing-service/geo"
+	"github.com/jaclar/routing-service/isochrone"
 	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
 	"github.com/jaclar/routing-service/weather"
@@ -14,6 +15,7 @@ type RouteRequest struct {
 	Dest               geo.Point         `json:"dest"`
 	StartTime          *time.Time        `json:"start_time,omitempty"`
 	BoatPreset         string            `json:"boat_preset,omitempty"`
+	Model              string            `json:"model,omitempty"` // "all", "gfs_0p25", "ifs_0p25", "icon_global"
 	TimeStepHours      float64           `json:"time_step_hours,omitempty"`
 	TackPenaltyMinutes *float64          `json:"tack_penalty_minutes,omitempty"`
 	GybePenaltyMinutes *float64          `json:"gybe_penalty_minutes,omitempty"`
@@ -21,7 +23,14 @@ type RouteRequest struct {
 	CustomPolar        *polar.PolarTable `json:"custom_polar,omitempty"`
 }
 
+type MultiModelRouteResult struct {
+	ActiveModel string                            `json:"active_model"`
+	Routes      map[string]*isochrone.RouteResult `json:"routes"`
+	*isochrone.RouteResult
+}
+
 type WeatherGridRequest struct {
+	Model   string     `json:"model,omitempty"` // "gfs_0p25", "ifs_0p25", "icon_global"
 	MinLat  float64    `json:"min_lat"`
 	MaxLat  float64    `json:"max_lat"`
 	MinLon  float64    `json:"min_lon"`
@@ -32,6 +41,7 @@ type WeatherGridRequest struct {
 }
 
 type WeatherGridResponse struct {
+	Model   string                    `json:"model"`
 	Time    time.Time                 `json:"time"`
 	MinLat  float64                   `json:"min_lat"`
 	MaxLat  float64                   `json:"max_lat"`

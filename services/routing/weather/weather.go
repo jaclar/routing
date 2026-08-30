@@ -10,6 +10,35 @@ const (
 	KnotsToMS = 1852.0 / 3600.0
 )
 
+// Supported canonical model identifiers (matching meteo service storage keys)
+const (
+	ModelGFS025     = "gfs_0p25"
+	ModelIFS025     = "ifs_0p25"
+	ModelICONGlobal = "icon_global"
+	ModelAll        = "all"
+)
+
+// NormalizeModelID converts user/UI model aliases to canonical storage model IDs.
+func NormalizeModelID(id string) string {
+	switch id {
+	case "gfs", "gfs_seamless", "gfs_0p25":
+		return ModelGFS025
+	case "ecmwf", "ifs", "ifs_seamless", "ifs_0p25":
+		return ModelIFS025
+	case "icon", "dwd_icon", "icon_seamless", "icon_global":
+		return ModelICONGlobal
+	case "", "all":
+		return ModelAll
+	default:
+		return id
+	}
+}
+
+// AvailableModelIDs returns the list of primary canonical models.
+func AvailableModelIDs() []string {
+	return []string{ModelGFS025, ModelIFS025, ModelICONGlobal}
+}
+
 // WindCondition represents wind speed and meteorological direction at a specific location and time.
 type WindCondition struct {
 	TWS float64 `json:"tws_kts"` // True Wind Speed [knots]

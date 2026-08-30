@@ -62,20 +62,20 @@ func NewRealisticGFSEngine(startTime time.Time) *GFSWeatherEngine {
 				if lat >= 0.0 && lat <= 30.0 {
 					// Northern Hemisphere Trade Winds: blowing towards WSW (negative U, negative V)
 					// TWD approx 055° - 075° (Northeasterlies)
-					tradeStrength := 8.5 + 2.0*math.Sin(lat*math.Pi/30.0)
-					uBase = -tradeStrength * math.Sin(60.0*math.Pi/180.0) // negative U (westward)
-					vBase = -tradeStrength * math.Cos(60.0*math.Pi/180.0) // negative V (southward)
+					tradeStrength := 9.5 + 2.0*math.Sin(lat*math.Pi/30.0)
+					uBase = -tradeStrength * math.Sin(65.0*math.Pi/180.0) // negative U (westward)
+					vBase = -tradeStrength * math.Cos(65.0*math.Pi/180.0) // negative V (southward)
 				} else if lat > 30.0 && lat <= 38.0 {
-					// Subtropical Horse Latitudes / Transition zone: lighter background winds
+					// Subtropical Highs / Transition zone: steady 12-16 knot southwesterly breeze
 					transFrac := (lat - 30.0) / 8.0
-					uBase = -5.0*(1.0-transFrac) + 4.0*transFrac
-					vBase = -2.0 * (1.0 - transFrac)
+					uBase = 4.0 + 4.0*transFrac
+					vBase = 3.5 + 2.5*math.Sin((lon+hoursFromStart*1.5)*math.Pi/45.0)
 				} else if lat > 38.0 && lat <= 65.0 {
 					// Mid-latitude Westerlies: blowing towards ENE (positive U, positive V)
 					// TWD approx 240° - 270° (Westerlies)
 					westerliesFactor := math.Sin((lat - 38.0) / 27.0 * math.Pi)
-					uBase = 8.0 + 7.5*westerliesFactor
-					vBase = 2.0 + 2.5*math.Sin((lon+hoursFromStart*1.5)*math.Pi/45.0)
+					uBase = 9.0 + 8.5*westerliesFactor
+					vBase = 3.0 + 2.5*math.Sin((lon+hoursFromStart*1.5)*math.Pi/45.0)
 				} else if lat >= -30.0 && lat < 0.0 {
 					// Southern Hemisphere Trade Winds: blowing towards WNW (negative U, positive V)
 					tradeStrength := 8.0 + 2.0*math.Sin(math.Abs(lat)*math.Pi/30.0)

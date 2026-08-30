@@ -13,8 +13,14 @@ type PolarTable struct {
 }
 
 // InterpolateSpeed computes boat speed in knots for arbitrary (TWS, TWA) using bilinear interpolation,
-// strictly enforcing aerodynamic no-go zone / in-irons limits (TWA < 28 deg -> 0 kts).
+// strictly enforcing aerodynamic no-go zone / in-irons limits (TWA < 28 deg -> 0 kts) and 0 kts in dead air (TWS <= 3 kts).
 func (p *PolarTable) InterpolateSpeed(twsKts, twaDeg float64) float64 {
+	// 0. Dead air / calm limit: yacht produces zero speed in <= 3 knots of wind
+	const calmWindLimit = 3.0
+	if twsKts <= calmWindLimit {
+		return 0.0
+	}
+
 	// Symmetrical angle: wrap to [0, 180]
 	angle := math.Abs(math.Mod(twaDeg, 360.0))
 	if angle > 180.0 {
@@ -22,7 +28,6 @@ func (p *PolarTable) InterpolateSpeed(twsKts, twaDeg float64) float64 {
 	}
 
 	// 1. Aerodynamic No-Go Zone: Sails stall / luff head-to-wind
-	// For standard cruising/racing yachts, beating closer than ~28° to true wind produces zero forward drive
 	if angle <= 22.0 {
 		return 0.0
 	}
@@ -33,9 +38,19 @@ func (p *PolarTable) InterpolateSpeed(twsKts, twaDeg float64) float64 {
 		return 0.0
 	}
 
-	// 2. Clamp / find TWS index
-	twsIdx0, twsIdx1, twsFrac := findIndexAndFraction(p.TWSList, twsKts)
-	// 3. Clamp / find TWA index
+	// 2. Scale factor if wind is in light-air band between calm limit (3.0 kts) and base polar curve (e.g. 6.0 kts)
+	var lowWindScale float64 = 1.0
+	effTWS := twsKts
+	if twsKts < p.TWSList[0] {
+		if p.TWSList[0] > calmWindLimit {
+			lowWindScale = (twsKts - calmWindLimit) / (p.TWSList[0] - calmWindLimit)
+			effTWS = p.TWSList[0]
+		}
+	}
+
+	// 3. Clamp / find TWS index
+	twsIdx0, twsIdx1, twsFrac := findIndexAndFraction(p.TWSList, effTWS)
+	// 4. Clamp / find TWA index
 	twaIdx0, twaIdx1, twaFrac := findIndexAndFraction(p.TWAList, angle)
 
 	// Bilinear interpolation
@@ -47,7 +62,7 @@ func (p *PolarTable) InterpolateSpeed(twsKts, twaDeg float64) float64 {
 	s0 := s00*(1.0-twaFrac) + s01*twaFrac
 	s1 := s10*(1.0-twaFrac) + s11*twaFrac
 
-	speed := s0*(1.0-twsFrac) + s1*twsFrac
+	speed := (s0*(1.0-twsFrac) + s1*twsFrac) * lowWindScale
 
 	// Smooth quadratic roll-off in the near-stall transition band [22°, 28°]
 	if angle < 28.0 {

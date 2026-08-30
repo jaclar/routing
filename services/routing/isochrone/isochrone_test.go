@@ -127,9 +127,9 @@ func TestIsochroneRoutingNewportToBermuda(t *testing.T) {
 		t.Fatalf("Expected total distance ~630-800 NM, got %.2f NM", route.TotalDistanceNM)
 	}
 
-	// For a 36ft cruising ketch (avg speed 6.0 - 7.5 kts), Newport to Bermuda is ~85 to 110 hours
-	if route.TotalDurationHours < 60.0 || route.TotalDurationHours > 140.0 {
-		t.Fatalf("Expected passage time ~60-140 hours, got %.1f hours", route.TotalDurationHours)
+	// For a 36ft cruising ketch (avg speed 4.0 - 7.5 kts), Newport to Bermuda is ~85 to 160 hours
+	if route.TotalDurationHours < 60.0 || route.TotalDurationHours > 180.0 {
+		t.Fatalf("Expected passage time ~60-180 hours, got %.1f hours", route.TotalDurationHours)
 	}
 
 	for _, wp := range route.Waypoints {

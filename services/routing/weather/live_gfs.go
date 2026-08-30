@@ -13,9 +13,55 @@ import (
 	"time"
 )
 
-// LiveNOAAGFSEngine fetches, caches, and provides real operational NOAA GFS 0.25° weather forecast grids.
-type LiveNOAAGFSEngine struct {
+// MultiModelWeatherProvider coordinates live weather engines across multiple meteorological models.
+type MultiModelWeatherProvider struct {
+	mu         sync.RWMutex
+	apiBaseURL string
+	startTime  time.Time
+	engines    map[string]*LiveWeatherEngine
+}
+
+// NewMultiModelWeatherProvider creates a manager that instantiates and caches model-specific weather engines.
+func NewMultiModelWeatherProvider(startTime time.Time) *MultiModelWeatherProvider {
+	baseURL := strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "http://localhost:4081")), "/")
+
+	m := &MultiModelWeatherProvider{
+		apiBaseURL: baseURL,
+		startTime:  startTime,
+		engines:    make(map[string]*LiveWeatherEngine),
+	}
+
+	// Pre-initialize default engines
+	for _, id := range AvailableModelIDs() {
+		m.engines[id] = NewLiveWeatherEngine(id, startTime, baseURL)
+	}
+
+	return m
+}
+
+// GetEngine returns the LiveWeatherEngine for a canonical model ID (e.g. gfs_0p25, ifs_0p25, icon_global).
+func (m *MultiModelWeatherProvider) GetEngine(modelID string) *LiveWeatherEngine {
+	canonicalID := NormalizeModelID(modelID)
+	if canonicalID == ModelAll || canonicalID == "" {
+		canonicalID = ModelGFS025
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if eng, ok := m.engines[canonicalID]; ok {
+		return eng
+	}
+
+	eng := NewLiveWeatherEngine(canonicalID, m.startTime, m.apiBaseURL)
+	m.engines[canonicalID] = eng
+	return eng
+}
+
+// LiveWeatherEngine fetches, caches, and interpolates 4D wind fields for a specific meteorological model.
+type LiveWeatherEngine struct {
 	mu           sync.RWMutex
+	modelID      string
 	grids        map[string]*cachedGrid
 	fallback     *GFSWeatherEngine
 	httpClient   *http.Client
@@ -28,8 +74,8 @@ type cachedGrid struct {
 	fetchedAt time.Time
 }
 
-// OpenMeteoGFSResponse models the batch JSON returned by the Open-Meteo NOAA GFS service.
-type OpenMeteoGFSResponse struct {
+// OpenMeteoPointResponse models the JSON returned by Open-Meteo compatible endpoints.
+type OpenMeteoPointResponse struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	Hourly    struct {
@@ -39,20 +85,31 @@ type OpenMeteoGFSResponse struct {
 	} `json:"hourly"`
 }
 
-// NewLiveNOAAGFSEngine creates a new live NOAA GFS provider with fallback to realistic physics.
-func NewLiveNOAAGFSEngine(startTime time.Time) *LiveNOAAGFSEngine {
-	baseURL := strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "https://api.open-meteo.com")), "/")
+// NewLiveWeatherEngine initializes a model-specific weather provider.
+func NewLiveWeatherEngine(modelID string, startTime time.Time, apiBaseURL string) *LiveWeatherEngine {
+	if apiBaseURL == "" {
+		apiBaseURL = strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "http://localhost:4081")), "/")
+	}
 
-	return &LiveNOAAGFSEngine{
+	return &LiveWeatherEngine{
+		modelID:  modelID,
 		grids:    make(map[string]*cachedGrid),
 		fallback: NewRealisticGFSEngine(startTime),
 		httpClient: &http.Client{
-			Timeout: 4 * time.Second,
+			Timeout: 6 * time.Second,
 		},
 		forecastDays: 16,
-		apiBaseURL:   baseURL,
+		apiBaseURL:   apiBaseURL,
 	}
 }
+
+// NewLiveNOAAGFSEngine is retained for backward compatibility, returning the GFS 0.25 engine.
+func NewLiveNOAAGFSEngine(startTime time.Time) *LiveWeatherEngine {
+	return NewLiveWeatherEngine(ModelGFS025, startTime, "")
+}
+
+// LiveNOAAGFSEngine alias for backward compatibility.
+type LiveNOAAGFSEngine = LiveWeatherEngine
 
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {
@@ -61,10 +118,70 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// FetchRegion downloads and builds a 4D WeatherGrid from live NOAA GFS data for the specified bounding box.
-func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, latStep, lonStep float64) (*WeatherGrid, error) {
+// ModelID returns the model identifier of this engine.
+func (e *LiveWeatherEngine) ModelID() string {
+	return e.modelID
+}
+
+// buildEndpoint constructs the URL path for this model.
+func (e *LiveWeatherEngine) buildEndpoint(latsStr, lonsStr string) string {
+	switch e.modelID {
+	case ModelGFS025:
+		return fmt.Sprintf("%s/v1/gfs?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
+	case ModelIFS025:
+		return fmt.Sprintf("%s/v1/ecmwf?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
+	case ModelICONGlobal:
+		return fmt.Sprintf("%s/v1/dwd-icon?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
+	default:
+		return fmt.Sprintf("%s/v1/forecast?models=%s&latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, e.modelID, latsStr, lonsStr, e.forecastDays)
+	}
+}
+
+func (e *LiveWeatherEngine) fetchEndpointPoints(url string) ([]OpenMeteoPointResponse, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "SailboatWeatherRouter/1.0")
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("meteo HTTP status %d: %s", resp.StatusCode, string(body))
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var rawPoints []OpenMeteoPointResponse
+	if strings.HasPrefix(strings.TrimSpace(string(bodyBytes)), "[") {
+		if err := json.Unmarshal(bodyBytes, &rawPoints); err != nil {
+			return nil, err
+		}
+	} else {
+		var single OpenMeteoPointResponse
+		if err := json.Unmarshal(bodyBytes, &single); err != nil {
+			return nil, err
+		}
+		rawPoints = []OpenMeteoPointResponse{single}
+	}
+	return rawPoints, nil
+}
+
+// FetchRegion downloads and builds a 4D WeatherGrid from live weather model data for the specified bounding box.
+func (e *LiveWeatherEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, latStep, lonStep float64) (*WeatherGrid, error) {
 	e.mu.RLock()
-	// Check if any existing cached grid covers this region and is fresh (< 6 hours)
 	for _, cg := range e.grids {
 		if time.Since(cg.fetchedAt) < 6*time.Hour {
 			g := cg.grid
@@ -76,7 +193,6 @@ func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 	}
 	e.mu.RUnlock()
 
-	// Normalize resolution to ensure fast single-request ocean fetching (target ~80-150 points total)
 	latSpan := maxLat - minLat
 	lonSpan := maxLon - minLon
 
@@ -117,57 +233,22 @@ func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 		}
 	}
 
-	apiURL := fmt.Sprintf(
-		"%s/v1/gfs?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
-		e.apiBaseURL,
-		strings.Join(lats, ","),
-		strings.Join(lons, ","),
-		e.forecastDays,
-	)
+	latsStr := strings.Join(lats, ",")
+	lonsStr := strings.Join(lons, ",")
+	apiURL := e.buildEndpoint(latsStr, lonsStr)
 
-	req, err := http.NewRequest("GET", apiURL, nil)
+	rawPoints, err := e.fetchEndpointPoints(apiURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("User-Agent", "SailboatWeatherRouter/1.0")
-
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		log.Printf("Live NOAA GFS HTTP query failed for [%.1f..%.1f Lat, %.1f..%.1f Lon]: %v. Using fallback.", minLat, maxLat, minLon, maxLon, err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		err := fmt.Errorf("NOAA GFS API status %d: %s", resp.StatusCode, string(body))
-		log.Printf("Live NOAA GFS API returned error: %v. Using fallback.", err)
-		return nil, err
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var rawPoints []OpenMeteoGFSResponse
-	if strings.HasPrefix(strings.TrimSpace(string(bodyBytes)), "[") {
-		if err := json.Unmarshal(bodyBytes, &rawPoints); err != nil {
-			return nil, fmt.Errorf("failed to parse JSON array: %w", err)
-		}
-	} else {
-		var single OpenMeteoGFSResponse
-		if err := json.Unmarshal(bodyBytes, &single); err != nil {
-			return nil, fmt.Errorf("failed to parse single JSON: %w", err)
-		}
-		rawPoints = []OpenMeteoGFSResponse{single}
+		log.Printf("[ERROR] Weather model %s fetch failed: %v", e.modelID, err)
+		return nil, fmt.Errorf("weather model %s unavailable: %w", e.modelID, err)
 	}
 
 	if len(rawPoints) == 0 || len(rawPoints[0].Hourly.Time) == 0 {
-		return nil, fmt.Errorf("no forecast points returned from NOAA GFS")
+		err := fmt.Errorf("no forecast points returned for model %s", e.modelID)
+		log.Printf("[ERROR] %v", err)
+		return nil, err
 	}
 
-	// Parse timestamps
 	nTime := len(rawPoints[0].Hourly.Time)
 	timestamps := make([]time.Time, nTime)
 	for tIdx, timeStr := range rawPoints[0].Hourly.Time {
@@ -178,10 +259,8 @@ func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 		timestamps[tIdx] = tParsed.UTC()
 	}
 
-	// Initialize 4D WeatherGrid
 	grid := NewWeatherGrid(minLat, maxLat, latStep, minLon, maxLon, lonStep, timestamps)
 
-	// Populate U and V tensors
 	for ptIdx, item := range rawPoints {
 		if ptIdx >= len(indexMap) {
 			break
@@ -199,7 +278,6 @@ func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 				dirDeg = item.Hourly.WindDirection10m[tIdx]
 			}
 
-			// Convert to eastward (U) and northward (V) velocities [m/s]
 			spdMS := spdKts * KnotsToMS
 			dirRad := dirDeg * math.Pi / 180.0
 			u := -spdMS * math.Sin(dirRad)
@@ -218,12 +296,13 @@ func (e *LiveNOAAGFSEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 	}
 	e.mu.Unlock()
 
-	log.Printf("Successfully loaded live NOAA GFS grid [%.1f..%.1f Lat, %.1f..%.1f Lon, %d time steps across %d points in 1 request]", minLat, maxLat, minLon, maxLon, nTime, len(rawPoints))
+	log.Printf("Successfully loaded live %s grid [%.1f..%.1f Lat, %.1f..%.1f Lon, %d time steps across %d points]",
+		e.modelID, minLat, maxLat, minLon, maxLon, nTime, len(rawPoints))
 	return grid, nil
 }
 
 // GetWind samples wind condition at arbitrary latitude, longitude, and time.
-func (e *LiveNOAAGFSEngine) GetWind(lat, lon float64, t time.Time) WindCondition {
+func (e *LiveWeatherEngine) GetWind(lat, lon float64, t time.Time) WindCondition {
 	e.mu.RLock()
 	for _, cg := range e.grids {
 		g := cg.grid
@@ -235,12 +314,11 @@ func (e *LiveNOAAGFSEngine) GetWind(lat, lon float64, t time.Time) WindCondition
 	}
 	e.mu.RUnlock()
 
-	// Fall back to physics-based meteorological simulation
 	return e.fallback.GetWind(lat, lon, t)
 }
 
 // GetGrid extracts a 2D wind slice across a lat/lon domain at time t.
-func (e *LiveNOAAGFSEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) [][]WindCondition {
+func (e *LiveWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) [][]WindCondition {
 	grid, err := e.FetchRegion(minLat, maxLat, minLon, maxLon, latStep, lonStep)
 	if err == nil && grid != nil {
 		nLat := int(math.Round((maxLat-minLat)/latStep)) + 1
@@ -257,6 +335,5 @@ func (e *LiveNOAAGFSEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lon
 		return res
 	}
 
-	// Fallback to simulation grid
 	return e.fallback.GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep, t)
 }
