@@ -15,8 +15,10 @@ import (
 
 // IngestCycle performs a full cycle ingestion: discovers slices, downloads/decodes in parallel, and writes to staging store.
 func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreManager, cycle *model.ModelCycle, variables []string, concurrency int) error {
-	log.Printf("[Ingest] Starting cycle ingestion for %s (Cycle: %s, %d forecast steps, %d variables)",
-		cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"), len(cycle.ForecastSteps), len(variables))
+	tag := fmt.Sprintf("[%s %s]", cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"))
+
+	log.Printf("[Ingest]%s Starting cycle ingestion (%d forecast steps, %d variables)",
+		tag, len(cycle.ForecastSteps), len(variables))
 
 	if concurrency <= 0 {
 		concurrency = 8
@@ -25,9 +27,9 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 	// 1. Discover all slices
 	tasks, err := drv.DiscoverSlices(cycle, variables)
 	if err != nil {
-		return fmt.Errorf("failed to discover slices: %w", err)
+		return fmt.Errorf("failed to discover slices for %s: %w", tag, err)
 	}
-	log.Printf("[Ingest] Discovered %d slice tasks to fetch", len(tasks))
+	log.Printf("[Ingest]%s Discovered %d slice tasks to fetch", tag, len(tasks))
 
 	// Global 0.25° grid bounds (90 to -90 Lat, 0 to 359.75 Lon)
 	latStart, latEnd, latStep := 90.0, -90.0, cycle.ResolutionDeg
@@ -36,7 +38,7 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 	// 2. Create staging Zarr writer
 	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, variables)
 	if err != nil {
-		return fmt.Errorf("failed to create staging writer: %w", err)
+		return fmt.Errorf("failed to create staging writer for %s: %w", tag, err)
 	}
 
 	// 3. Concurrently fetch and decode slices with worker pool
@@ -62,19 +64,35 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 					return
 				}
 
-				// Retry up to 3 times on transient network error
+				// Retry up to 8 times with exponential backoff and randomized jitter
+				const maxAttempts = 8
 				var slice *model.RawGridSlice
 				var fetchErr error
-				for attempt := 0; attempt < 3; attempt++ {
+				for attempt := 0; attempt < maxAttempts; attempt++ {
+					if attempt > 0 {
+						backoffMs := 1000 * (1 << (attempt - 1))
+						if backoffMs > 30000 {
+							backoffMs = 30000
+						}
+						jitterMs := int(time.Now().UnixNano() % 500)
+						sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
+						log.Printf("[Ingest]%s Worker %d rate limit/retry (%d/%d) for %s step %d in %v: %v",
+							tag, workerID, attempt, maxAttempts, task.Variable, task.StepHours, sleepDuration.Round(time.Millisecond), fetchErr)
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(sleepDuration):
+						}
+					}
+
 					slice, fetchErr = drv.IngestSlice(ctx, task)
 					if fetchErr == nil {
 						break
 					}
-					time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
 				}
 
 				if fetchErr != nil {
-					log.Printf("[Ingest] Worker %d error fetching %s step %d: %v", workerID, task.Variable, task.StepHours, fetchErr)
+					log.Printf("[Ingest]%s Worker %d error fetching %s step %d: %v", tag, workerID, task.Variable, task.StepHours, fetchErr)
 					errOnce.Do(func() {
 						firstErr = fetchErr
 					})
@@ -82,7 +100,7 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 				}
 
 				if err := writer.WriteSlice(slice); err != nil {
-					log.Printf("[Ingest] Worker %d error writing slice: %v", workerID, err)
+					log.Printf("[Ingest]%s Worker %d error writing slice %s step %d: %v", tag, workerID, task.Variable, task.StepHours, err)
 					errOnce.Do(func() {
 						firstErr = err
 					})
@@ -92,10 +110,13 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 				countMu.Lock()
 				completedCount++
 				if completedCount%10 == 0 || completedCount == int64(len(tasks)) {
-					log.Printf("[Ingest] Progress: %d/%d slices processed (%.1f%%)",
-						completedCount, len(tasks), float64(completedCount)/float64(len(tasks))*100.0)
+					log.Printf("[Ingest]%s Progress: %d/%d slices processed (%.1f%%)",
+						tag, completedCount, len(tasks), float64(completedCount)/float64(len(tasks))*100.0)
 				}
 				countMu.Unlock()
+
+				// Slight pacing delay to prevent micro-burst rate limits on upstream CDNs
+				time.Sleep(50 * time.Millisecond)
 			}
 		}(w)
 	}
@@ -104,24 +125,24 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 
 	if firstErr != nil {
 		_ = os.RemoveAll(stagingDir)
-		return fmt.Errorf("cycle ingestion aborted (upstream files still in-flight or incomplete): %w", firstErr)
+		return fmt.Errorf("cycle ingestion aborted for %s (upstream files still in-flight or incomplete): %w", tag, firstErr)
 	}
 
 	// 4. Finalize staging store
-	log.Printf("[Ingest] Packing and compressing Zarr store...")
+	log.Printf("[Ingest]%s Packing and compressing Zarr store...", tag)
 	if err := writer.Finalize(); err != nil {
-		return fmt.Errorf("failed to finalize staging store: %w", err)
+		return fmt.Errorf("failed to finalize staging store for %s: %w", tag, err)
 	}
 
 	// 5. Atomically promote staging store and update symlink
-	log.Printf("[Ingest] Promoting staging store to permanent cycle %s...", zarr.CycleSlug(cycle.ReferenceTime))
+	log.Printf("[Ingest]%s Promoting staging store to permanent cycle %s...", tag, zarr.CycleSlug(cycle.ReferenceTime))
 	if err := mgr.PromoteStagingStore(cycle.ModelName, cycle.ReferenceTime, stagingDir); err != nil {
-		return fmt.Errorf("failed to promote store: %w", err)
+		return fmt.Errorf("failed to promote store for %s: %w", tag, err)
 	}
 
 	// 6. Prune old runs (keep latest 2)
 	_ = mgr.PruneOldCycles(cycle.ModelName, 2)
 
-	log.Printf("[Ingest] Successfully completed ingestion for %s (Cycle: %s)", cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"))
+	log.Printf("[Ingest]%s Successfully completed cycle ingestion", tag)
 	return nil
 }

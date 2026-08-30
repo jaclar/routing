@@ -34,7 +34,7 @@ func NewIngestionDaemon(cfg DaemonConfig, mgr *zarr.StoreManager, drivers []driv
 		cfg.PollInterval = 10 * time.Minute
 	}
 	if cfg.Concurrency <= 0 {
-		cfg.Concurrency = 8
+		cfg.Concurrency = 4
 	}
 	if len(cfg.Variables) == 0 {
 		cfg.Variables = []string{
@@ -92,45 +92,61 @@ func (d *IngestionDaemon) Start(ctx context.Context) {
 }
 
 func (d *IngestionDaemon) checkAllModels(ctx context.Context) {
+	var wg sync.WaitGroup
+
 	for modelID, drv := range d.drivers {
 		if ctx.Err() != nil {
 			return
 		}
 
-		latestCycle, err := drv.CheckLatestCycle(ctx)
+		wg.Add(1)
+		go func(mID string, dDriver driver.ModelDriver) {
+			defer wg.Done()
+			d.checkSingleModel(ctx, mID, dDriver)
+		}(modelID, drv)
+	}
+
+	wg.Wait()
+}
+
+func (d *IngestionDaemon) checkSingleModel(ctx context.Context, modelID string, drv driver.ModelDriver) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	latestCycle, err := drv.CheckLatestCycle(ctx)
+	if err != nil {
+		log.Printf("[Daemon] Error checking latest cycle for %s: %v", modelID, err)
+		return
+	}
+
+	d.mu.Lock()
+	lastCycleTime, exists := d.lastCycles[modelID]
+	if !exists {
+		if latestOnDisk, onDiskExists, err := d.storeManager.GetLatestCycleTime(modelID); err == nil && onDiskExists {
+			lastCycleTime = latestOnDisk
+			exists = true
+			d.lastCycles[modelID] = latestOnDisk
+		}
+	}
+	d.mu.Unlock()
+
+	if !exists || latestCycle.ReferenceTime.After(lastCycleTime) {
+		log.Printf("[Daemon] New cycle discovered for %s: %s (Previous: %s)",
+			modelID, latestCycle.ReferenceTime.Format("2006-01-02 15:04 UTC"), lastCycleTime.Format("2006-01-02 15:04 UTC"))
+
+		// Run ingestion in parallel for this model
+		err := IngestCycle(ctx, drv, d.storeManager, latestCycle, d.cfg.Variables, d.cfg.Concurrency)
 		if err != nil {
-			log.Printf("[Daemon] Error checking latest cycle for %s: %v", modelID, err)
-			continue
+			log.Printf("[Daemon] Ingestion failed for %s cycle %s: %v", modelID, latestCycle.ReferenceTime.Format("2006-01-02 15:04 UTC"), err)
+			return
 		}
 
 		d.mu.Lock()
-		lastCycleTime, exists := d.lastCycles[modelID]
-		if !exists {
-			if latestOnDisk, onDiskExists, err := d.storeManager.GetLatestCycleTime(modelID); err == nil && onDiskExists {
-				lastCycleTime = latestOnDisk
-				exists = true
-				d.lastCycles[modelID] = latestOnDisk
-			}
-		}
+		d.lastCycles[modelID] = latestCycle.ReferenceTime
 		d.mu.Unlock()
-
-		if !exists || latestCycle.ReferenceTime.After(lastCycleTime) {
-			log.Printf("[Daemon] New cycle discovered for %s: %s (Previous: %s)",
-				modelID, latestCycle.ReferenceTime.Format("2006-01-02 15:04 UTC"), lastCycleTime.Format("2006-01-02 15:04 UTC"))
-
-			// Run ingestion
-			err := IngestCycle(ctx, drv, d.storeManager, latestCycle, d.cfg.Variables, d.cfg.Concurrency)
-			if err != nil {
-				log.Printf("[Daemon] Ingestion failed for %s cycle %s: %v", modelID, latestCycle.ReferenceTime, err)
-				continue
-			}
-
-			d.mu.Lock()
-			d.lastCycles[modelID] = latestCycle.ReferenceTime
-			d.mu.Unlock()
-		} else {
-			log.Printf("[Daemon] Model %s is up to date (Active cycle: %s)",
-				modelID, lastCycleTime.Format("2006-01-02 15:04 UTC"))
-		}
+	} else {
+		log.Printf("[Daemon] Model %s is up to date (Active cycle: %s)",
+			modelID, lastCycleTime.Format("2006-01-02 15:04 UTC"))
 	}
 }

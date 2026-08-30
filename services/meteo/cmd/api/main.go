@@ -95,7 +95,12 @@ func main() {
 func handleForecast(w http.ResponseWriter, r *http.Request, engine *query.Engine, forcedModel string) {
 	req, err := query.ParseHTTPRequest(r)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error": true, "reason": %q}`, err.Error()), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  true,
+			"reason": err.Error(),
+		})
 		return
 	}
 
@@ -103,9 +108,20 @@ func handleForecast(w http.ResponseWriter, r *http.Request, engine *query.Engine
 		req.Models = []string{forcedModel}
 	}
 
+	targetModel := "gfs_0p25"
+	if len(req.Models) > 0 && req.Models[0] != "" {
+		targetModel = req.Models[0]
+	}
+
 	resp, err := engine.ExecuteForecast(r.Context(), req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error": true, "reason": %q}`, err.Error()), http.StatusInternalServerError)
+		log.Printf("[ERROR] Model %s forecast query failed: %v", targetModel, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  true,
+			"reason": fmt.Sprintf("Model %s is unavailable: %v", targetModel, err),
+		})
 		return
 	}
 
@@ -136,7 +152,13 @@ func handleGrid(w http.ResponseWriter, r *http.Request, engine *query.Engine) {
 
 	res, err := engine.ExecuteGrid(r.Context(), modelID, minLat, maxLat, minLon, maxLon, latStep, lonStep, stepHour)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error": true, "reason": %q}`, err.Error()), http.StatusInternalServerError)
+		log.Printf("[ERROR] Model %s grid query failed: %v", modelID, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  true,
+			"reason": fmt.Sprintf("Model %s grid is unavailable: %v", modelID, err),
+		})
 		return
 	}
 

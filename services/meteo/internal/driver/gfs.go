@@ -27,9 +27,7 @@ type GFSDriver struct {
 // NewGFSDriver creates a new NOAA GFS 0.25° driver.
 func NewGFSDriver(client *http.Client) *GFSDriver {
 	if client == nil {
-		client = &http.Client{
-			Timeout: 30 * time.Second,
-		}
+		client = DefaultHTTPClient()
 	}
 	return &GFSDriver{
 		httpClient: client,

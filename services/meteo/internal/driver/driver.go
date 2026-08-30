@@ -2,9 +2,24 @@ package driver
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"sailboat/meteo/internal/model"
 )
+
+// DefaultHTTPClient creates an optimized HTTP client with generous timeouts and connection pooling.
+func DefaultHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 180 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 20,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 15 * time.Second,
+		},
+	}
+}
 
 // ModelDriver defines the pluggable contract for fetching and decoding any NWP weather model.
 type ModelDriver interface {

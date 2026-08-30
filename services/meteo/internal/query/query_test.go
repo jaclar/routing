@@ -105,3 +105,56 @@ func TestEngineForecastExecution(t *testing.T) {
 		t.Errorf("expected ~19.44 knots, got %f", speeds[0])
 	}
 }
+
+func TestRealStoresInspection(t *testing.T) {
+	dataDir := "../../data/store"
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		dataDir = "../data/store"
+	}
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		dataDir = "/Users/jaclar/Projects/routing/data/store"
+	}
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		t.Skip("data/store not found, skipping real store test")
+	}
+
+	mgr, err := zarr.NewStoreManager(dataDir)
+	if err != nil {
+		t.Fatalf("Failed to create StoreManager: %v", err)
+	}
+
+	engine := NewEngine(mgr)
+	ctx := context.Background()
+
+	modelsToTest := []string{"gfs_0p25", "ifs_0p25", "icon_global"}
+	for _, m := range modelsToTest {
+		t.Run(m, func(t *testing.T) {
+			req := &ForecastRequest{
+				Latitudes:     []float64{12.05},
+				Longitudes:    []float64{-61.75},
+				Hourly:        []string{"wind_speed_10m", "wind_direction_10m", "pressure_msl"},
+				WindSpeedUnit: "kn",
+				Models:        []string{m},
+			}
+			resp, err := engine.ExecuteForecast(ctx, req)
+			if err != nil {
+				t.Logf("Model %s returned error (expected if not populated): %v", m, err)
+				return
+			}
+			omResp, ok := resp.(*OpenMeteoResponse)
+			if !ok {
+				t.Fatalf("expected *OpenMeteoResponse, got %T", resp)
+			}
+			speeds, _ := omResp.Hourly["wind_speed_10m"].([]float64)
+			dirs, _ := omResp.Hourly["wind_direction_10m"].([]float64)
+			t.Logf("Model %s: %d time points. First 5 speeds: %v, First 5 dirs: %v", m, len(speeds), speeds[:min(5, len(speeds))], dirs[:min(5, len(dirs))])
+		})
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

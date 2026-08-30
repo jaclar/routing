@@ -4,3 +4,5 @@ github.com/go-chi/cors v1.2.1 h1:xEC8UT3Rlp2QuWNEr4Fs/c2EAGVKBwy/1vHx3bppil4=
 github.com/go-chi/cors v1.2.1/go.mod h1:sSbTewc+6wYHBBCW7ytsFSn836hqM7JxpglAy2Vzc58=
 github.com/klauspost/compress v1.17.8 h1:YcnTYrq7MikUT7k0Yb5eceMmALQPYBW/Xltxn0NAMnU=
 github.com/klauspost/compress v1.17.8/go.mod h1:Di0epgTjJY877eYKx5yC51cX2A2Vl2ibi7bDH9ttBbw=
+github.com/shyrmapp/aec v0.3.3 h1:NX+ifIJgr8BEKRWsKsmKROKJL4NSf7cJ/uq4zyJ7Kd4=
+github.com/shyrmapp/aec v0.3.3/go.mod h1:QxICK8IZvgudfAQnB5isgcgwprbaW8/dqmhg7aA0fD8=

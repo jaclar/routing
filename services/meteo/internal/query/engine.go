@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -71,6 +72,8 @@ func (e *Engine) resolveStore(modelID string) (*zarr.Store, *interp.SpatialInter
 	return store, si, nil
 }
 
+var ErrModelNotFound = errors.New("model not available in store")
+
 // ExecuteForecast executes the forecast query and formats the Open-Meteo compliant output.
 func (e *Engine) ExecuteForecast(ctx context.Context, req *ForecastRequest) (any, error) {
 	start := time.Now()
@@ -82,16 +85,12 @@ func (e *Engine) ExecuteForecast(ctx context.Context, req *ForecastRequest) (any
 
 	store, si, err := e.resolveStore(primaryModel)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrModelNotFound, err)
 	}
 
 	// If single coordinate, return a single JSON object
 	if len(req.Latitudes) == 1 {
-		res, err := e.buildSingleResponse(store, si, req.Latitudes[0], req.Longitudes[0], req, start)
-		if err != nil {
-			return nil, err
-		}
-		return res, nil
+		return e.buildSingleResponse(store, si, req.Latitudes[0], req.Longitudes[0], req, start)
 	}
 
 	// Multiple coordinates -> return JSON array of responses

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,7 +28,7 @@ func main() {
 		daemonMode  = flag.Bool("daemon", false, "Run continuous ingestion daemon")
 		modelFlag   = flag.String("model", "gfs_0p25", "Model to ingest: gfs_0p25, ifs_0p25, icon_global")
 		varsFlag    = flag.String("variables", "wind_u_10m,wind_v_10m,wind_gust_10m,mslp,temp_2m,precip_accum", "Comma-separated canonical variables")
-		concurrency = flag.Int("concurrency", 8, "Number of concurrent slice fetch workers")
+		concurrency = flag.Int("concurrency", 4, "Number of concurrent slice fetch workers per model")
 		pollMinutes = flag.Int("poll-interval", 10, "Polling interval in minutes for daemon mode")
 	)
 	flag.Parse()
@@ -67,29 +68,48 @@ func main() {
 		return
 	}
 
-	// Manual single-run mode
-	var targetDriver driver.ModelDriver
-	for _, d := range drivers {
-		if strings.EqualFold(d.ModelID(), *modelFlag) {
-			targetDriver = d
-			break
+	// Manual multi/single-run mode
+	var targetDrivers []driver.ModelDriver
+	if strings.EqualFold(*modelFlag, "all") || *modelFlag == "" {
+		targetDrivers = drivers
+	} else {
+		requested := strings.Split(*modelFlag, ",")
+		for _, req := range requested {
+			req = strings.TrimSpace(req)
+			found := false
+			for _, d := range drivers {
+				if strings.EqualFold(d.ModelID(), req) {
+					targetDrivers = append(targetDrivers, d)
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Fatalf("Unknown model %q (available: gfs_0p25, ifs_0p25, icon_global, all)", req)
+			}
 		}
 	}
 
-	if targetDriver == nil {
-		log.Fatalf("Unknown model %q (available: gfs_0p25, ifs_0p25, icon_global)", *modelFlag)
-	}
+	var wg sync.WaitGroup
+	for _, targetDriver := range targetDrivers {
+		wg.Add(1)
+		go func(drv driver.ModelDriver) {
+			defer wg.Done()
+			log.Printf("Discovering latest cycle for %s...", drv.ModelID())
+			cycle, err := drv.CheckLatestCycle(ctx)
+			if err != nil {
+				log.Printf("[ERROR] Failed to discover cycle for %s: %v", drv.ModelID(), err)
+				return
+			}
 
-	log.Printf("Discovering latest cycle for %s...", targetDriver.ModelID())
-	cycle, err := targetDriver.CheckLatestCycle(ctx)
-	if err != nil {
-		log.Fatalf("Failed to discover cycle: %v", err)
+			log.Printf("Ingesting cycle for %s: %s (%s)", drv.ModelID(), cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"))
+			if err := scheduler.IngestCycle(ctx, drv, mgr, cycle, varList, *concurrency); err != nil {
+				log.Printf("[ERROR] Ingestion failed for %s: %v", drv.ModelID(), err)
+				return
+			}
+			log.Printf("Ingestion completed successfully for %s.", drv.ModelID())
+		}(targetDriver)
 	}
-
-	log.Printf("Ingesting cycle: %s (%s)", cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"))
-	if err := scheduler.IngestCycle(ctx, targetDriver, mgr, cycle, varList, *concurrency); err != nil {
-		log.Fatalf("Ingestion failed: %v", err)
-	}
-
-	log.Println("Ingestion completed successfully.")
+	wg.Wait()
+	log.Println("Manual ingestion run finished.")
 }

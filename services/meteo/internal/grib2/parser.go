@@ -9,6 +9,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/shyrmapp/aec"
 	"sailboat/meteo/internal/model"
 )
 
@@ -30,6 +31,7 @@ type Message struct {
 	SurfaceValue  float64
 
 	// Grid Definition
+	GridTemplate uint16
 	Ni           int
 	Nj           int
 	La1, Lo1     float64
@@ -40,6 +42,12 @@ type Message struct {
 	// Data
 	DataPoints int
 	Values     []float32
+}
+
+type ccsdsMeta struct {
+	flags     uint32
+	blockSize int
+	rsi       int
 }
 
 type complexPackingMeta struct {
@@ -117,6 +125,7 @@ func Parse(data []byte) (*Message, error) {
 		sec3Points  int
 		sec5Points  int
 		cpm         complexPackingMeta
+		ccsdsOpt    ccsdsMeta
 
 		hasBitmap bool
 		bitmap    []byte
@@ -159,6 +168,7 @@ func Parse(data []byte) (*Message, error) {
 			}
 			if len(secData) >= 14 {
 				gridTemplate := binary.BigEndian.Uint16(secData[12:14])
+				msg.GridTemplate = gridTemplate
 				if gridTemplate == 0 || gridTemplate == 40 { // Lat/Lon Equirectangular grid
 					if len(secData) >= 72 {
 						ni = int(binary.BigEndian.Uint32(secData[30:34]))
@@ -171,6 +181,11 @@ func Parse(data []byte) (*Message, error) {
 						dj = float64(binary.BigEndian.Uint32(secData[67:71])) * 1e-6
 						scanMode = secData[71]
 					}
+				} else if gridTemplate == 100 || gridTemplate == 101 { // General Unstructured (e.g. ICON Global)
+					ni = sec3Points
+					nj = 1
+				} else {
+					return nil, fmt.Errorf("unsupported GRIB2 grid template %d (only regular lat/lon 0/40 and unstructured 100/101 supported)", gridTemplate)
 				}
 			}
 
@@ -242,6 +257,18 @@ func Parse(data []byte) (*Message, error) {
 					if len(secData) >= 12 {
 						numBits = secData[11] // 32 or 64
 					}
+				} else if repTemplate == 42 { // CCSDS compression (Template 5.42)
+					if len(secData) >= 25 {
+						bits := binary.BigEndian.Uint32(secData[11:15])
+						refVal = math.Float32frombits(bits)
+						binScale = readGRIBSignedInt16(secData[15:17])
+						decScale = readGRIBSignedInt16(secData[17:19])
+						numBits = secData[19]
+						// secData[20] is originalType (octet 21)
+						ccsdsOpt.flags = uint32(secData[21]) // octet 22
+						ccsdsOpt.blockSize = int(secData[22]) // octet 23
+						ccsdsOpt.rsi = int(binary.BigEndian.Uint16(secData[23:25])) // octet 24-25
+					}
 				}
 			}
 
@@ -286,12 +313,13 @@ func Parse(data []byte) (*Message, error) {
 					if err != nil {
 						return nil, fmt.Errorf("failed to decode IEEE floats: %w", err)
 					}
-				} else {
-					// Fallback attempt with simple unpacking
-					decoded, err = decodeSimplePacking(rawPayload, numPoints, refVal, binScale, decScale, numBits, hasBitmap, bitmap)
+				} else if repTemplate == 42 { // CCSDS / AEC lossless compression
+					decoded, err = decodeCCSDSPacking(rawPayload, numPoints, refVal, binScale, decScale, numBits, ccsdsOpt, hasBitmap, bitmap)
 					if err != nil {
-						return nil, fmt.Errorf("unsupported data representation template %d", repTemplate)
+						return nil, fmt.Errorf("failed to decode CCSDS packing (template 42): %w", err)
 					}
+				} else {
+					return nil, fmt.Errorf("unsupported GRIB2 data representation template %d (compression/packing format not supported)", repTemplate)
 				}
 				msg.Values = decoded
 			}
@@ -318,6 +346,18 @@ func Parse(data []byte) (*Message, error) {
 	msg.DataPoints = len(msg.Values)
 
 	return msg, nil
+}
+
+func readGRIBSignedInt16(b []byte) int16 {
+	if len(b) < 2 {
+		return 0
+	}
+	sign := (b[0] & 0x80) != 0
+	val := int16(binary.BigEndian.Uint16(b) & 0x7FFF)
+	if sign {
+		return -val
+	}
+	return val
 }
 
 func readGRIBSigned(b []byte) int64 {
@@ -594,6 +634,85 @@ func (r *bitReader) alignToByte() {
 	if rem != 0 {
 		r.bitPos += (8 - rem)
 	}
+}
+
+// decodeCCSDSPacking decodes GRIB2 Data Representation Template 5.42 (CCSDS / AEC lossless compression).
+func decodeCCSDSPacking(payload []byte, numPoints int, refVal float32, binScale, decScale int16, numBits uint8, opt ccsdsMeta, hasBitmap bool, bitmap []byte) ([]float32, error) {
+	if numPoints <= 0 {
+		return nil, nil
+	}
+
+	if numBits == 0 {
+		out := make([]float32, numPoints)
+		val := float32(refVal)
+		for i := range out {
+			out[i] = val
+		}
+		return out, nil
+	}
+
+	rawCount := numPoints
+	if hasBitmap && len(bitmap) > 0 {
+		count := 0
+		for i := 0; i < numPoints; i++ {
+			byteIdx := i / 8
+			bitIdx := 7 - (i % 8)
+			if byteIdx < len(bitmap) && ((bitmap[byteIdx]>>bitIdx)&1) == 1 {
+				count++
+			}
+		}
+		rawCount = count
+	}
+
+	blockSize := opt.blockSize
+	if blockSize <= 0 {
+		blockSize = 16
+	}
+	rsi := opt.rsi
+	if rsi <= 0 {
+		rsi = 128
+	}
+
+	params := aec.Params{
+		BitsPerSample: int(numBits),
+		BlockSize:     blockSize,
+		RSI:           rsi,
+		Flags:         int(opt.flags),
+		NumValues:     rawCount,
+	}
+
+	decodedInts, err := aec.Decode(payload, params)
+	if err != nil {
+		return nil, fmt.Errorf("aec decode error: %w", err)
+	}
+
+	scaleBin := math.Pow(2.0, float64(binScale))
+	scaleDec := math.Pow(10.0, -float64(decScale))
+
+	out := make([]float32, numPoints)
+	valIdx := 0
+
+	for i := 0; i < numPoints; i++ {
+		if hasBitmap && len(bitmap) > 0 {
+			byteIdx := i / 8
+			bitIdx := 7 - (i % 8)
+			if byteIdx >= len(bitmap) || ((bitmap[byteIdx]>>bitIdx)&1) == 0 {
+				out[i] = float32(math.NaN())
+				continue
+			}
+		}
+
+		if valIdx < len(decodedInts) {
+			rawVal := decodedInts[valIdx]
+			valIdx++
+			scaled := (float64(refVal) + float64(rawVal)*scaleBin) * scaleDec
+			out[i] = float32(scaled)
+		} else {
+			out[i] = float32(math.NaN())
+		}
+	}
+
+	return out, nil
 }
 
 // ToRawGridSlice converts a decoded GRIB2 message to a canonical RawGridSlice.

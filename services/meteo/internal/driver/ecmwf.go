@@ -32,7 +32,7 @@ type ECMWFDriver struct {
 // NewECMWFDriver creates an ECMWF driver for IFS or AIFS.
 func NewECMWFDriver(modelID string, client *http.Client) *ECMWFDriver {
 	if client == nil {
-		client = &http.Client{Timeout: 45 * time.Second}
+		client = DefaultHTTPClient()
 	}
 	if modelID == "" {
 		modelID = model.ModelIFS025
@@ -173,31 +173,21 @@ func (e *ECMWFDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*m
 	// 1. Fetch .index file to find exact byte offset and length
 	offset, length, err := e.lookupECMWFIndex(ctx, idxURL, param)
 	if err != nil {
-		// Return zero/NaN slice if optional or diagnostic field is omitted upstream
-		nlats := 721
-		nlons := 1440
-		return &model.RawGridSlice{
-			Variable:  task.Variable,
-			ValidTime: task.Cycle,
-			StepHours: task.StepHours,
-			NLats:     nlats,
-			NLons:     nlons,
-			LatStart:  90.0,
-			LatEnd:    -90.0,
-			LatStep:   0.25,
-			LonStart:  0.0,
-			LonEnd:    359.75,
-			LonStep:   0.25,
-			Data:      make([]float32, nlats*nlons),
-		}, nil
+		return nil, fmt.Errorf("ECMWF index lookup failed for %s (param %s): %w", task.Variable, param, err)
 	}
 
 	// 2. Fetch exact byte range with exponential retry backoff on 503/429/network errors
 	var gribBytes []byte
 	var fetchErr error
-	for attempt := 0; attempt < 5; attempt++ {
+	const maxS3Attempts = 8
+	for attempt := 0; attempt < maxS3Attempts; attempt++ {
 		if attempt > 0 {
-			sleepDuration := time.Duration(150*(1<<attempt))*time.Millisecond + time.Duration(time.Now().UnixNano()%100)*time.Millisecond
+			backoffMs := 500 * (1 << (attempt - 1))
+			if backoffMs > 30000 {
+				backoffMs = 30000
+			}
+			jitterMs := int(time.Now().UnixNano() % 500)
+			sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -240,7 +230,7 @@ func (e *ECMWFDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*m
 	}
 
 	if fetchErr != nil {
-		return nil, fmt.Errorf("failed to fetch ECMWF byte range after 5 retries: %w", fetchErr)
+		return nil, fmt.Errorf("failed to fetch ECMWF byte range after %d retries: %w", maxS3Attempts, fetchErr)
 	}
 
 	// 3. Parse GRIB2 message
@@ -266,9 +256,20 @@ func (e *ECMWFDriver) lookupECMWFIndex(ctx context.Context, idxURL, targetParam 
 	} else {
 		// Fetch with retries and exponential backoff
 		var fetchErr error
-		for attempt := 0; attempt < 3; attempt++ {
+		const maxIdxAttempts = 8
+		for attempt := 0; attempt < maxIdxAttempts; attempt++ {
 			if attempt > 0 {
-				time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+				backoffMs := 500 * (1 << (attempt - 1))
+				if backoffMs > 30000 {
+					backoffMs = 30000
+				}
+				jitterMs := int(time.Now().UnixNano() % 500)
+				sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
+				select {
+				case <-ctx.Done():
+					return 0, 0, ctx.Err()
+				case <-time.After(sleepDuration):
+				}
 			}
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, idxURL, nil)
@@ -286,7 +287,10 @@ func (e *ECMWFDriver) lookupECMWFIndex(ctx context.Context, idxURL, targetParam 
 				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
 				fetchErr = fmt.Errorf("HTTP status %d fetching ECMWF index %s: %s", resp.StatusCode, idxURL, string(body))
-				continue
+				if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+					continue
+				}
+				return 0, 0, fetchErr
 			}
 
 			data, err := io.ReadAll(resp.Body)
@@ -302,7 +306,7 @@ func (e *ECMWFDriver) lookupECMWFIndex(ctx context.Context, idxURL, targetParam 
 		}
 
 		if fetchErr != nil {
-			return 0, 0, fetchErr
+			return 0, 0, fmt.Errorf("failed to fetch ECMWF index after %d attempts: %w", maxIdxAttempts, fetchErr)
 		}
 
 		e.idxMu.Lock()
