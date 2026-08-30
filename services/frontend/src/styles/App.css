@@ -729,6 +729,48 @@ body {
 }
 
 /* ==========================================
+   Simulation Time Top Chip
+   ========================================== */
+.simulation-time-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 7px 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  color: var(--text-main);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sim-clock-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.sim-time-text {
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+}
+
+.sim-elapsed-badge {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--accent);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* ==========================================
    VPP Inspector View
    ========================================== */
 .vpp-inspector-container {
@@ -3498,6 +3540,23 @@ body {
   .tab-nav-btn svg {
     width: 14px;
     height: 14px;
+  }
+
+  .simulation-time-chip {
+    padding: 5px 9px;
+    font-size: 0.72rem;
+    gap: 5px;
+    border-radius: 10px;
+  }
+
+  .sim-clock-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .sim-elapsed-badge {
+    padding: 1px 5px;
+    font-size: 0.65rem;
   }
 
   /* Map top-right overlay - placed under the tabs */

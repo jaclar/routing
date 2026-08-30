@@ -25,6 +25,7 @@ import {
   X,
   Sliders,
   BarChart3,
+  Clock,
 } from 'lucide-react';
 import './styles/App.css';
 
@@ -336,6 +337,40 @@ export const App: React.FC = () => {
               <BarChart3 size={16} />
               <span>Passage Statistics</span>
             </button>
+          </div>
+        )}
+
+        {/* 3. Current Simulation Time Chip */}
+        {activeView === 'routing' && activeTime && (
+          <div className="simulation-time-chip" title="Current Simulation Time (UTC)">
+            <Clock size={14} className="sim-clock-icon" />
+            <span className="sim-time-text">
+              {(() => {
+                try {
+                  const d = new Date(activeTime);
+                  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                  const day = d.getUTCDate();
+                  const month = months[d.getUTCMonth()];
+                  const hours = String(d.getUTCHours()).padStart(2, '0');
+                  const mins = String(d.getUTCMinutes()).padStart(2, '0');
+                  return `${day} ${month} • ${hours}:${mins} UTC`;
+                } catch {
+                  return activeTime;
+                }
+              })()}
+            </span>
+            {routeResult && routeResult.waypoints[currentWaypointIndex] && (
+              <span className="sim-elapsed-badge">
+                +{Math.round(
+                  Math.max(
+                    0,
+                    (new Date(routeResult.waypoints[currentWaypointIndex].time).getTime() -
+                      new Date(routeResult.start_time).getTime()) /
+                      (3600 * 1000)
+                  )
+                )}h
+              </span>
+            )}
           </div>
         )}
 
