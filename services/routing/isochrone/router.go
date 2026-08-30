@@ -42,6 +42,9 @@ type Waypoint struct {
 	DistanceToDestNM float64   `json:"distance_to_dest_nm"`
 	EstimatedHeelDeg float64   `json:"estimated_heel_deg"`
 	Maneuver         string    `json:"maneuver,omitempty"` // "none", "tack", "gybe"
+	GustKts          float64   `json:"gust_kts,omitempty"`
+	WaveHeightM      float64   `json:"wave_height_m,omitempty"`
+	WavePeriodS      float64   `json:"wave_period_s,omitempty"`
 }
 
 // IsochroneWave represents a single time-frontier line on the map.
@@ -369,6 +372,9 @@ func backtrackRoute(terminal *Node) []Waypoint {
 	waypoints := make([]Waypoint, len(nodes))
 	for i, n := range nodes {
 		estimatedHeel := estimateHeelAngle(n.TWS, n.TWA)
+		gust := math.Round((n.TWS*1.25+1.5)*10.0) / 10.0
+		waveHeight := math.Max(0.3, math.Round(math.Pow(n.TWS/10.0, 1.3)*0.5*10.0)/10.0)
+		wavePeriod := math.Max(4.0, math.Round((3.5+math.Sqrt(n.TWS)*1.2)*10.0)/10.0)
 		waypoints[i] = Waypoint{
 			Lat:              n.Point.Lat,
 			Lon:              n.Point.Lon,
@@ -382,6 +388,9 @@ func backtrackRoute(terminal *Node) []Waypoint {
 			DistanceToDestNM: n.DistanceToDest * geo.MetersToNM,
 			EstimatedHeelDeg: estimatedHeel,
 			Maneuver:         n.Maneuver,
+			GustKts:          gust,
+			WaveHeightM:      waveHeight,
+			WavePeriodS:      wavePeriod,
 		}
 	}
 

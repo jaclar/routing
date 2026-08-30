@@ -179,6 +179,9 @@ export interface Waypoint {
   distance_to_dest_nm: number;
   estimated_heel_deg: number;
   maneuver?: 'none' | 'tack' | 'gybe';
+  gust_kts?: number;
+  wave_height_m?: number;
+  wave_period_s?: number;
 }
 
 export interface IsochroneWave {
