@@ -2,12 +2,14 @@ package driver
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"sailboat/meteo/internal/grib2"
@@ -18,10 +20,17 @@ const (
 	GFSBaseS3URL = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
 )
 
+type gfsIdxRecord struct {
+	offset  int64
+	content string
+}
+
 // GFSDriver implements ModelDriver for NOAA GFS 0.25° global forecasts.
 type GFSDriver struct {
-	httpClient *http.Client
-	baseURL    string
+	httpClient       *http.Client
+	baseURL          string
+	parsedIndexCache map[string][]gfsIdxRecord
+	idxMu            sync.Mutex
 }
 
 // NewGFSDriver creates a new NOAA GFS 0.25° driver.
@@ -30,8 +39,9 @@ func NewGFSDriver(client *http.Client) *GFSDriver {
 		client = DefaultHTTPClient()
 	}
 	return &GFSDriver{
-		httpClient: client,
-		baseURL:    GFSBaseS3URL,
+		httpClient:       client,
+		baseURL:          GFSBaseS3URL,
+		parsedIndexCache: make(map[string][]gfsIdxRecord),
 	}
 }
 
@@ -192,9 +202,15 @@ func (g *GFSDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*mod
 	// 2. Fetch byte range from GRIB2 file with exponential retry backoff
 	var gribBytes []byte
 	var fetchErr error
-	for attempt := 0; attempt < 5; attempt++ {
+	const maxRangeAttempts = 8
+	for attempt := 0; attempt < maxRangeAttempts; attempt++ {
 		if attempt > 0 {
-			sleepDuration := time.Duration(150*(1<<attempt))*time.Millisecond + time.Duration(time.Now().UnixNano()%100)*time.Millisecond
+			backoffMs := 500 * (1 << (attempt - 1))
+			if backoffMs > 30000 {
+				backoffMs = 30000
+			}
+			jitterMs := int(time.Now().UnixNano() % 500)
+			sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -242,7 +258,7 @@ func (g *GFSDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*mod
 	}
 
 	if fetchErr != nil {
-		return nil, fmt.Errorf("failed to fetch GRIB slice range after 5 retries: %w", fetchErr)
+		return nil, fmt.Errorf("failed to fetch GRIB slice range after %d retries: %w", maxRangeAttempts, fetchErr)
 	}
 
 	// 3. Parse GRIB2 message
@@ -256,24 +272,116 @@ func (g *GFSDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*mod
 	return slice, nil
 }
 
+// fetchAndParseIndex downloads and parses a NOAA GFS .idx file once, caching the results in memory.
+func (g *GFSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) ([]gfsIdxRecord, error) {
+	g.idxMu.Lock()
+	defer g.idxMu.Unlock()
+
+	if g.parsedIndexCache == nil {
+		g.parsedIndexCache = make(map[string][]gfsIdxRecord)
+	}
+	if records, exists := g.parsedIndexCache[idxURL]; exists {
+		return records, nil
+	}
+
+	var rawBytes []byte
+	var fetchErr error
+	const maxIdxAttempts = 8
+	for attempt := 0; attempt < maxIdxAttempts; attempt++ {
+		if attempt > 0 {
+			backoffMs := 500 * (1 << (attempt - 1))
+			if backoffMs > 30000 {
+				backoffMs = 30000
+			}
+			jitterMs := int(time.Now().UnixNano() % 500)
+			sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(sleepDuration):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, idxURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := g.httpClient.Do(req)
+		if err != nil {
+			fetchErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			fetchErr = fmt.Errorf("HTTP status %d fetching GFS index %s: %s", resp.StatusCode, idxURL, string(body))
+			if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+				continue
+			}
+			return nil, fetchErr
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			fetchErr = err
+			continue
+		}
+
+		rawBytes = data
+		fetchErr = nil
+		break
+	}
+
+	if fetchErr != nil {
+		return nil, fmt.Errorf("failed to fetch GFS index after %d attempts: %w", maxIdxAttempts, fetchErr)
+	}
+
+	var records []gfsIdxRecord
+	scanner := bufio.NewScanner(bytes.NewReader(rawBytes))
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, ":")
+		if len(parts) >= 3 {
+			offset, err := strconv.ParseInt(parts[1], 10, 64)
+			if err == nil {
+				records = append(records, gfsIdxRecord{
+					offset:  offset,
+					content: line,
+				})
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	g.parsedIndexCache[idxURL] = records
+	return records, nil
+}
+
 // lookupByteRange reads the .idx file and finds the start and end byte offsets for the target pattern.
 func (g *GFSDriver) lookupByteRange(ctx context.Context, idxURL, targetPattern string) (int64, int64, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, idxURL, nil)
+	records, err := g.fetchAndParseIndex(ctx, idxURL)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	resp, err := g.httpClient.Do(req)
-	if err != nil {
-		return 0, 0, err
+	for i, rec := range records {
+		if strings.Contains(rec.content, targetPattern) {
+			start := rec.offset
+			var end int64 = 0
+			if i+1 < len(records) {
+				end = records[i+1].offset - 1
+			}
+			return start, end, nil
+		}
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, fmt.Errorf("HTTP status %d fetching index %s", resp.StatusCode, idxURL)
-	}
-
-	return ParseIndexByteRange(resp.Body, targetPattern)
+	return 0, 0, fmt.Errorf("pattern %q not found in index %s", targetPattern, idxURL)
 }
 
 // ParseIndexByteRange parses index records from an io.Reader and returns byte start/end offsets.

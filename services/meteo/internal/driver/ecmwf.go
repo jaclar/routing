@@ -20,13 +20,18 @@ const (
 	ECMWFBaseS3URL = "https://ecmwf-forecasts.s3.amazonaws.com"
 )
 
+type ecmwfByteRange struct {
+	Offset int64
+	Length int64
+}
+
 // ECMWFDriver implements ModelDriver for ECMWF Open Data (IFS 0.25° and AIFS 0.25°) via S3 index byte ranges.
 type ECMWFDriver struct {
-	httpClient *http.Client
-	modelID    string
-	baseURL    string
-	idxCache   map[string][]byte
-	idxMu      sync.RWMutex
+	httpClient       *http.Client
+	modelID          string
+	baseURL          string
+	parsedIndexCache map[string]map[string]ecmwfByteRange
+	idxMu            sync.Mutex
 }
 
 // NewECMWFDriver creates an ECMWF driver for IFS or AIFS.
@@ -38,10 +43,10 @@ func NewECMWFDriver(modelID string, client *http.Client) *ECMWFDriver {
 		modelID = model.ModelIFS025
 	}
 	return &ECMWFDriver{
-		httpClient: client,
-		modelID:    modelID,
-		baseURL:    ECMWFBaseS3URL,
-		idxCache:   make(map[string][]byte),
+		httpClient:       client,
+		modelID:          modelID,
+		baseURL:          ECMWFBaseS3URL,
+		parsedIndexCache: make(map[string]map[string]ecmwfByteRange),
 	}
 }
 
@@ -244,74 +249,71 @@ func (e *ECMWFDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*m
 	return slice, nil
 }
 
-// lookupECMWFIndex scans the JSON-Lines .index file from ECMWF S3 with caching and exponential retry backoff.
-func (e *ECMWFDriver) lookupECMWFIndex(ctx context.Context, idxURL, targetParam string) (int64, int64, error) {
-	e.idxMu.RLock()
-	cachedData, exists := e.idxCache[idxURL]
-	e.idxMu.RUnlock()
+// fetchAndParseIndex downloads and parses an ECMWF JSON-Lines .index file once, caching the results in memory.
+func (e *ECMWFDriver) fetchAndParseIndex(ctx context.Context, idxURL string) (map[string]ecmwfByteRange, error) {
+	e.idxMu.Lock()
+	defer e.idxMu.Unlock()
+
+	if e.parsedIndexCache == nil {
+		e.parsedIndexCache = make(map[string]map[string]ecmwfByteRange)
+	}
+	if ranges, exists := e.parsedIndexCache[idxURL]; exists {
+		return ranges, nil
+	}
 
 	var rawBytes []byte
-	if exists {
-		rawBytes = cachedData
-	} else {
-		// Fetch with retries and exponential backoff
-		var fetchErr error
-		const maxIdxAttempts = 8
-		for attempt := 0; attempt < maxIdxAttempts; attempt++ {
-			if attempt > 0 {
-				backoffMs := 500 * (1 << (attempt - 1))
-				if backoffMs > 30000 {
-					backoffMs = 30000
-				}
-				jitterMs := int(time.Now().UnixNano() % 500)
-				sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
-				select {
-				case <-ctx.Done():
-					return 0, 0, ctx.Err()
-				case <-time.After(sleepDuration):
-				}
+	var fetchErr error
+	const maxIdxAttempts = 8
+	for attempt := 0; attempt < maxIdxAttempts; attempt++ {
+		if attempt > 0 {
+			backoffMs := 500 * (1 << (attempt - 1))
+			if backoffMs > 30000 {
+				backoffMs = 30000
 			}
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, idxURL, nil)
-			if err != nil {
-				return 0, 0, err
+			jitterMs := int(time.Now().UnixNano() % 500)
+			sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(sleepDuration):
 			}
+		}
 
-			resp, err := e.httpClient.Do(req)
-			if err != nil {
-				fetchErr = err
-				continue
-			}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, idxURL, nil)
+		if err != nil {
+			return nil, err
+		}
 
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				fetchErr = fmt.Errorf("HTTP status %d fetching ECMWF index %s: %s", resp.StatusCode, idxURL, string(body))
-				if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-					continue
-				}
-				return 0, 0, fetchErr
-			}
+		resp, err := e.httpClient.Do(req)
+		if err != nil {
+			fetchErr = err
+			continue
+		}
 
-			data, err := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			if err != nil {
-				fetchErr = err
+			fetchErr = fmt.Errorf("HTTP status %d fetching ECMWF index %s: %s", resp.StatusCode, idxURL, string(body))
+			if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 				continue
 			}
-
-			rawBytes = data
-			fetchErr = nil
-			break
+			return nil, fetchErr
 		}
 
-		if fetchErr != nil {
-			return 0, 0, fmt.Errorf("failed to fetch ECMWF index after %d attempts: %w", maxIdxAttempts, fetchErr)
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			fetchErr = err
+			continue
 		}
 
-		e.idxMu.Lock()
-		e.idxCache[idxURL] = rawBytes
-		e.idxMu.Unlock()
+		rawBytes = data
+		fetchErr = nil
+		break
+	}
+
+	if fetchErr != nil {
+		return nil, fmt.Errorf("failed to fetch ECMWF index after %d attempts: %w", maxIdxAttempts, fetchErr)
 	}
 
 	type ecmwfIdxRecord struct {
@@ -321,20 +323,45 @@ func (e *ECMWFDriver) lookupECMWFIndex(ctx context.Context, idxURL, targetParam 
 		Length  int64  `json:"_length"`
 	}
 
+	res := make(map[string]ecmwfByteRange)
 	scanner := bufio.NewScanner(bytes.NewReader(rawBytes))
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		var rec ecmwfIdxRecord
 		if err := json.Unmarshal(line, &rec); err == nil {
-			if strings.EqualFold(rec.Param, targetParam) ||
-				(targetParam == "10fg" && (rec.Param == "10fg3" || rec.Param == "10fg6")) {
-				return rec.Offset, rec.Length, nil
+			res[strings.ToLower(rec.Param)] = ecmwfByteRange{
+				Offset: rec.Offset,
+				Length: rec.Length,
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	e.parsedIndexCache[idxURL] = res
+	return res, nil
+}
+
+// lookupECMWFIndex scans the JSON-Lines .index file from ECMWF S3 with thread-safe caching and exponential retry backoff.
+func (e *ECMWFDriver) lookupECMWFIndex(ctx context.Context, idxURL, targetParam string) (int64, int64, error) {
+	ranges, err := e.fetchAndParseIndex(ctx, idxURL)
+	if err != nil {
 		return 0, 0, err
+	}
+
+	lower := strings.ToLower(targetParam)
+	if r, ok := ranges[lower]; ok {
+		return r.Offset, r.Length, nil
+	}
+	if lower == "10fg" {
+		if r, ok := ranges["10fg3"]; ok {
+			return r.Offset, r.Length, nil
+		}
+		if r, ok := ranges["10fg6"]; ok {
+			return r.Offset, r.Length, nil
+		}
 	}
 
 	return 0, 0, fmt.Errorf("param %q not found in ECMWF index %s", targetParam, idxURL)
