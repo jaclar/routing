@@ -11,7 +11,6 @@ import {
   RotateCw,
   Calendar,
   X,
-  Check,
 } from 'lucide-react';
 
 export type AnimationSpeed = 0.5 | 1 | 2;
@@ -173,11 +172,6 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   const handleOpenDateModal = () => {
     setTempDepartureTime(departureTime);
     setIsDateModalOpen(true);
-  };
-
-  const handleApplyDepartureOnly = () => {
-    onDepartureTimeChange(tempDepartureTime);
-    setIsDateModalOpen(false);
   };
 
   const handleApplyAndRecalculate = () => {
@@ -448,21 +442,12 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
               </button>
               <button
                 type="button"
-                className="btn-modal-cancel"
-                style={{ borderColor: 'rgba(56, 189, 248, 0.3)', color: '#38bdf8' }}
-                onClick={handleApplyDepartureOnly}
-              >
-                <Check size={14} />
-                <span>Apply Time</span>
-              </button>
-              <button
-                type="button"
                 className="btn-primary"
                 onClick={handleApplyAndRecalculate}
                 disabled={loading}
               >
                 <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-                <span>Update &amp; Recalculate</span>
+                <span>{loading ? 'Updating...' : 'Update'}</span>
               </button>
             </div>
           </div>
