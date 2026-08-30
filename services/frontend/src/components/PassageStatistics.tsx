@@ -25,7 +25,9 @@ import {
   BarChart3,
   Shield,
   Navigation,
+  Waves,
 } from 'lucide-react';
+import { getWindColor, getWaveIntensityColor } from './TimelineTable';
 
 ChartJS.register(
   CategoryScale,
@@ -51,7 +53,7 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
   activeModel = 'gfs_0p25',
   onSelectModel,
 }) => {
-  const [chartViewMode, setChartViewMode] = useState<'grid' | 'twa' | 'tws' | 'sog' | 'heel' | 'combined'>('grid');
+  const [chartViewMode, setChartViewMode] = useState<'grid' | 'twa' | 'tws' | 'wave' | 'sog' | 'heel' | 'combined'>('grid');
 
   // Compute passage statistics
   const stats = useMemo(() => {
@@ -88,6 +90,18 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
     let maxWind = -Infinity;
     let sumWind = 0;
 
+    let minGust = Infinity;
+    let maxGust = -Infinity;
+    let sumGust = 0;
+
+    let minWaveHeight = Infinity;
+    let maxWaveHeight = -Infinity;
+    let sumWaveHeight = 0;
+
+    let minWavePeriod = Infinity;
+    let maxWavePeriod = -Infinity;
+    let sumWavePeriod = 0;
+
     let maxSOG = -Infinity;
     let sumSOG = 0;
 
@@ -120,6 +134,27 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       if (wp.tws_kts > maxWind) maxWind = wp.tws_kts;
       sumWind += wp.tws_kts;
 
+      // Gust stats
+      const gust = wp.gust_kts !== undefined && wp.gust_kts > 0 ? wp.gust_kts : wp.tws_kts * 1.25 + 1.5;
+      if (gust < minGust) minGust = gust;
+      if (gust > maxGust) maxGust = gust;
+      sumGust += gust;
+
+      // Wave stats
+      const waveHeight = wp.wave_height_m !== undefined && wp.wave_height_m > 0
+        ? wp.wave_height_m
+        : Math.max(0.3, Math.round(Math.pow(wp.tws_kts / 10.0, 1.3) * 0.5 * 10.0) / 10.0);
+      if (waveHeight < minWaveHeight) minWaveHeight = waveHeight;
+      if (waveHeight > maxWaveHeight) maxWaveHeight = waveHeight;
+      sumWaveHeight += waveHeight;
+
+      const wavePeriod = wp.wave_period_s !== undefined && wp.wave_period_s > 0
+        ? wp.wave_period_s
+        : Math.max(4.0, Math.round((3.5 + Math.sqrt(wp.tws_kts) * 1.2) * 10.0) / 10.0);
+      if (wavePeriod < minWavePeriod) minWavePeriod = wavePeriod;
+      if (wavePeriod > maxWavePeriod) maxWavePeriod = wavePeriod;
+      sumWavePeriod += wavePeriod;
+
       // Speed stats
       if (wp.boat_speed_kts > maxSOG) maxSOG = wp.boat_speed_kts;
       sumSOG += wp.boat_speed_kts;
@@ -135,6 +170,9 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
     const pctDownwind = (downwindCount / n) * 100;
 
     const avgWind = sumWind / n;
+    const avgGust = sumGust / n;
+    const avgWaveHeight = sumWaveHeight / n;
+    const avgWavePeriod = sumWavePeriod / n;
     const avgSOG = sumSOG / n;
     const avgHeel = sumHeel / n;
 
@@ -152,6 +190,15 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       minWind: minWind === Infinity ? 0 : minWind,
       maxWind: maxWind === -Infinity ? 0 : maxWind,
       avgWind,
+      minGust: minGust === Infinity ? 0 : minGust,
+      maxGust: maxGust === -Infinity ? 0 : maxGust,
+      avgGust,
+      minWaveHeight: minWaveHeight === Infinity ? 0 : minWaveHeight,
+      maxWaveHeight: maxWaveHeight === -Infinity ? 0 : maxWaveHeight,
+      avgWaveHeight,
+      minWavePeriod: minWavePeriod === Infinity ? 0 : minWavePeriod,
+      maxWavePeriod: maxWavePeriod === -Infinity ? 0 : maxWavePeriod,
+      avgWavePeriod,
       maxSOG: maxSOG === -Infinity ? 0 : maxSOG,
       avgSOG,
       minHeel: minHeel === Infinity ? 0 : minHeel,
@@ -183,6 +230,9 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
 
     const twaData = wps.map((wp) => wp.twa_deg);
     const twsData = wps.map((wp) => wp.tws_kts);
+    const gustData = wps.map((wp) => (wp.gust_kts !== undefined && wp.gust_kts > 0 ? wp.gust_kts : wp.tws_kts * 1.25 + 1.5));
+    const waveHeightData = wps.map((wp) => (wp.wave_height_m !== undefined && wp.wave_height_m > 0 ? wp.wave_height_m : Math.max(0.3, Math.round(Math.pow(wp.tws_kts / 10.0, 1.3) * 0.5 * 10.0) / 10.0)));
+    const wavePeriodData = wps.map((wp) => (wp.wave_period_s !== undefined && wp.wave_period_s > 0 ? wp.wave_period_s : Math.max(4.0, Math.round((3.5 + Math.sqrt(wp.tws_kts) * 1.2) * 10.0) / 10.0)));
     const sogData = wps.map((wp) => wp.boat_speed_kts);
     const heelData = wps.map((wp) => wp.estimated_heel_deg);
 
@@ -190,6 +240,9 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       labels,
       twaData,
       twsData,
+      gustData,
+      waveHeightData,
+      wavePeriodData,
       sogData,
       heelData,
       waypoints: wps,
@@ -251,10 +304,15 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
             if (!items.length) return [];
             const idx = items[0].dataIndex;
             const wp = chartData.waypoints[idx];
+            const gust = chartData.gustData[idx];
+            const waveH = chartData.waveHeightData[idx];
+            const waveP = chartData.wavePeriodData[idx];
             const lines = [
               `Position: ${wp.lat.toFixed(3)}°N, ${Math.abs(wp.lon).toFixed(3)}°W`,
               `Distance: ${wp.distance_nm.toFixed(1)} NM (${wp.distance_to_dest_nm.toFixed(1)} NM to dest)`,
               `Heading: ${wp.heading_deg.toFixed(1)}° (TWD: ${wp.twd_deg.toFixed(1)}°)`,
+              `Wind: ${wp.tws_kts.toFixed(1)} kts (Gust: ${gust.toFixed(1)} kts)`,
+              `Wave: ${waveH.toFixed(1)}m @ ${waveP.toFixed(0)}s`,
             ];
             if (wp.maneuver && wp.maneuver !== 'none') {
               lines.push(`Maneuver: ${wp.maneuver.toUpperCase()}`);
@@ -321,7 +379,7 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
     },
   };
 
-  // 2. TWS Plot Data
+  // 2. TWS & Gust Plot Data
   const twsChartData = {
     labels: chartData.labels,
     datasets: [
@@ -336,6 +394,17 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
         pointHoverRadius: 5,
         tension: 0.25,
       },
+      {
+        label: 'Peak Wind Gust (kts)',
+        data: chartData.gustData,
+        borderColor: '#f97316',
+        backgroundColor: 'transparent',
+        borderDash: [5, 4],
+        borderWidth: 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        tension: 0.25,
+      },
     ],
   };
 
@@ -346,7 +415,7 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       y: {
         ...baseChartOptions.scales?.y,
         min: 0,
-        title: { display: true, text: 'Wind Speed [kts]', color: '#10b981', font: { weight: 'bold' } },
+        title: { display: true, text: 'Wind Speed & Gust [kts]', color: '#10b981', font: { weight: 'bold' } },
         ticks: {
           callback: (val) => `${val} kts`,
           color: '#cbd5e1',
@@ -355,7 +424,63 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
     },
   };
 
-  // 3. SOG Plot Data
+  // 3. Wave Height & Period Plot Data
+  const waveChartData = {
+    labels: chartData.labels,
+    datasets: [
+      {
+        label: 'Significant Wave Height (m)',
+        data: chartData.waveHeightData,
+        borderColor: '#0284c7',
+        backgroundColor: 'rgba(2, 132, 199, 0.18)',
+        fill: true,
+        borderWidth: 2.2,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        tension: 0.25,
+        yAxisID: 'y_wave_height',
+      },
+      {
+        label: 'Wave Period (s)',
+        data: chartData.wavePeriodData,
+        borderColor: '#818cf8',
+        backgroundColor: 'transparent',
+        borderDash: [5, 4],
+        borderWidth: 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        tension: 0.25,
+        yAxisID: 'y_wave_period',
+      },
+    ],
+  };
+
+  const waveOptions: ChartOptions<'line'> = {
+    ...baseChartOptions,
+    scales: {
+      ...baseChartOptions.scales,
+      y_wave_height: {
+        type: 'linear',
+        display: true,
+        position: 'left',
+        min: 0,
+        title: { display: true, text: 'Wave Height [m]', color: '#0284c7', font: { weight: 'bold' } },
+        grid: { color: 'rgba(255, 255, 255, 0.06)' },
+        ticks: { color: '#0284c7', callback: (val) => `${val}m` },
+      },
+      y_wave_period: {
+        type: 'linear',
+        display: true,
+        position: 'right',
+        min: 0,
+        title: { display: true, text: 'Wave Period [s]', color: '#818cf8', font: { weight: 'bold' } },
+        grid: { drawOnChartArea: false },
+        ticks: { color: '#818cf8', callback: (val) => `${val}s` },
+      },
+    },
+  };
+
+  // 4. SOG Plot Data
   const sogChartData = {
     labels: chartData.labels,
     datasets: [
@@ -389,7 +514,7 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
     },
   };
 
-  // 4. Heel Plot Data
+  // 5. Heel Plot Data
   const heelChartData = {
     labels: chartData.labels,
     datasets: [
@@ -425,7 +550,7 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
     },
   };
 
-  // 5. Combined Multi-Axis Chart Data
+  // 6. Combined Multi-Axis Chart Data
   const combinedChartData = {
     labels: chartData.labels,
     datasets: [
@@ -539,7 +664,8 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                     <th>Passage Duration</th>
                     <th>Distance</th>
                     <th>Avg Speed</th>
-                    <th>Max Wind</th>
+                    <th>Max Wind / Gust</th>
+                    <th>Max Wave</th>
                     <th>Tacks / Gybes</th>
                     <th>Status</th>
                     <th>Action</th>
@@ -563,6 +689,16 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                       durDays > 0
                         ? `${durDays}d ${durRemHours}h ${durMins}m (${durHours.toFixed(1)}h)`
                         : `${durRemHours}h ${durMins}m (${durHours.toFixed(1)}h)`;
+
+                    const mMaxGust = r.waypoints && r.waypoints.length > 0
+                      ? Math.max(...r.waypoints.map(w => w.gust_kts || (w.tws_kts * 1.25 + 1.5)))
+                      : r.max_wind_kts * 1.25;
+                    const mMaxWave = r.waypoints && r.waypoints.length > 0
+                      ? Math.max(...r.waypoints.map(w => w.wave_height_m || (Math.max(0.3, Math.round(Math.pow(w.tws_kts / 10.0, 1.3) * 0.5 * 10.0) / 10.0))))
+                      : 1.0;
+                    const mMaxWavePeriod = r.waypoints && r.waypoints.length > 0
+                      ? Math.max(...r.waypoints.map(w => w.wave_period_s || (Math.max(4.0, Math.round((3.5 + Math.sqrt(w.tws_kts) * 1.2) * 10.0) / 10.0))))
+                      : 7.0;
 
                     return (
                       <tr key={mId} className={isSelected ? 'active-model-row' : ''}>
@@ -598,7 +734,24 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                         <td className="font-mono highlight-duration">{durStr}</td>
                         <td className="font-mono">{r.total_distance_nm.toFixed(1)} NM</td>
                         <td className="font-mono">{r.average_speed_kts.toFixed(2)} kts</td>
-                        <td className="font-mono text-emerald">{r.max_wind_kts.toFixed(1)} kts</td>
+                        <td className="font-mono">
+                          <span style={{ color: getWindColor(r.max_wind_kts), fontWeight: 700 }}>
+                            {r.max_wind_kts.toFixed(1)}
+                          </span>
+                          <span style={{ color: '#64748b', margin: '0 4px' }}>/</span>
+                          <span style={{ color: getWindColor(mMaxGust), fontWeight: 700 }}>
+                            {mMaxGust.toFixed(1)}
+                          </span>
+                          <span style={{ color: '#94a3b8', fontSize: '0.75rem', marginLeft: '4px' }}>kts</span>
+                        </td>
+                        <td className="font-mono">
+                          <span style={{ color: getWaveIntensityColor(mMaxWave, mMaxWavePeriod), fontWeight: 700 }}>
+                            {mMaxWave.toFixed(1)}m
+                          </span>
+                          <span style={{ color: getWaveIntensityColor(mMaxWave, mMaxWavePeriod), opacity: 0.85, fontSize: '0.78rem', marginLeft: '4px' }}>
+                            ({mMaxWavePeriod.toFixed(0)}s)
+                          </span>
+                        </td>
                         <td className="font-mono">
                           {r.total_tacks} / {r.total_gybes}
                         </td>
@@ -714,32 +867,78 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                   </td>
                 </tr>
 
-                {/* 5. Wind Speed Telemetry */}
+                {/* 5. Wind & Gusts Telemetry */}
                 <tr title="Minimum True Wind Speed encountered on passage">
-                  <td className="row-category" rowSpan={3}>
-                    <Wind size={16} /> Wind Speed (TWS)
+                  <td className="row-category" rowSpan={4}>
+                    <Wind size={16} /> Wind &amp; Gusts
                   </td>
-                  <td className="metric-label">Lowest Wind</td>
-                  <td className="metric-value font-mono text-emerald">
+                  <td className="metric-label">Lowest Sustained Wind</td>
+                  <td className="metric-value font-mono" style={{ color: getWindColor(stats.minWind), fontWeight: 600 }}>
                     {stats.minWind.toFixed(1)} kts
                   </td>
                 </tr>
 
-                <tr title="Peak gust/breeze condition encountered">
-                  <td className="metric-label">Highest Wind</td>
-                  <td className="metric-value font-mono text-warning">
+                <tr title="Highest sustained wind speed encountered on passage">
+                  <td className="metric-label">Highest Sustained Wind</td>
+                  <td className="metric-value font-mono" style={{ color: getWindColor(stats.maxWind), fontWeight: 700 }}>
                     {stats.maxWind.toFixed(1)} kts
                   </td>
                 </tr>
 
+                <tr title="Peak wind gust speed encountered">
+                  <td className="metric-label">Peak Wind Gust</td>
+                  <td className="metric-value font-mono">
+                    <span style={{ color: getWindColor(stats.maxGust), fontWeight: 700 }}>
+                      {stats.maxGust.toFixed(1)} kts
+                    </span>{' '}
+                    <span style={{ color: '#94a3b8', fontSize: '0.82rem', fontWeight: 500 }}>
+                      (Avg: {stats.avgGust.toFixed(1)} kts)
+                    </span>
+                  </td>
+                </tr>
+
                 <tr title="Mean True Wind Speed over full route">
-                  <td className="metric-label">Average Wind</td>
-                  <td className="metric-value font-mono text-accent">
+                  <td className="metric-label">Average Wind Speed</td>
+                  <td className="metric-value font-mono" style={{ color: getWindColor(stats.avgWind), fontWeight: 600 }}>
                     {stats.avgWind.toFixed(1)} kts
                   </td>
                 </tr>
 
-                {/* 6. Boat Performance Metrics */}
+                {/* 6. Wave & Sea State Telemetry */}
+                <tr title="Significant wave height range across the passage">
+                  <td className="row-category" rowSpan={3}>
+                    <Waves size={16} /> Sea State &amp; Waves
+                  </td>
+                  <td className="metric-label">Significant Wave Height</td>
+                  <td className="metric-value font-mono">
+                    <span style={{ color: getWaveIntensityColor(stats.avgWaveHeight, stats.avgWavePeriod) }}>
+                      Avg: {stats.avgWaveHeight.toFixed(1)}m
+                    </span>{' '}
+                    <span style={{ color: '#64748b' }}>/</span>{' '}
+                    <span style={{ color: getWaveIntensityColor(stats.maxWaveHeight, stats.maxWavePeriod), fontWeight: 700 }}>
+                      Max: {stats.maxWaveHeight.toFixed(1)}m
+                    </span>
+                  </td>
+                </tr>
+
+                <tr title="Dominant wave period encountered">
+                  <td className="metric-label">Dominant Wave Period</td>
+                  <td className="metric-value font-mono" style={{ color: '#818cf8' }}>
+                    Avg: {stats.avgWavePeriod.toFixed(1)}s{' '}
+                    <span style={{ color: '#94a3b8', fontSize: '0.82rem', fontWeight: 500 }}>
+                      (Range: {stats.minWavePeriod.toFixed(0)}s – {stats.maxWavePeriod.toFixed(0)}s)
+                    </span>
+                  </td>
+                </tr>
+
+                <tr title="Peak sea state condition (height and period)">
+                  <td className="metric-label">Peak Sea State Condition</td>
+                  <td className="metric-value font-mono" style={{ color: getWaveIntensityColor(stats.maxWaveHeight, stats.maxWavePeriod), fontWeight: 700 }}>
+                    {stats.maxWaveHeight.toFixed(1)}m @ {stats.maxWavePeriod.toFixed(0)}s
+                  </td>
+                </tr>
+
+                {/* 7. Boat Performance Metrics */}
                 <tr title={`Mean speed over ground (Max: ${stats.maxSOG.toFixed(2)} kts)`}>
                   <td className="row-category" rowSpan={3}>
                     <Gauge size={16} /> Boat Performance
@@ -811,7 +1010,13 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
               className={`plot-tab-btn ${chartViewMode === 'tws' ? 'active' : ''}`}
               onClick={() => setChartViewMode('tws')}
             >
-              TWS
+              Wind &amp; Gust
+            </button>
+            <button
+              className={`plot-tab-btn ${chartViewMode === 'wave' ? 'active' : ''}`}
+              onClick={() => setChartViewMode('wave')}
+            >
+              Waves
             </button>
             <button
               className={`plot-tab-btn ${chartViewMode === 'sog' ? 'active' : ''}`}
@@ -851,21 +1056,35 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
               </div>
             </div>
 
-            {/* Chart 2: TWS */}
+            {/* Chart 2: TWS & Gust */}
             <div className="plot-card">
               <div className="plot-card-header">
                 <div className="plot-card-title">
                   <Wind size={16} className="text-emerald" />
-                  <span>True Wind Speed (TWS)</span>
+                  <span>Wind Speed &amp; Peak Gust (TWS)</span>
                 </div>
-                <span className="plot-card-badge">Min: {stats.minWind.toFixed(1)}k • Max: {stats.maxWind.toFixed(1)}k</span>
+                <span className="plot-card-badge">Wind: {stats.maxWind.toFixed(1)}k • Gust: {stats.maxGust.toFixed(1)}k</span>
               </div>
               <div className="plot-canvas-container">
                 <Line data={twsChartData} options={twsOptions} />
               </div>
             </div>
 
-            {/* Chart 3: SOG */}
+            {/* Chart 3: Waves */}
+            <div className="plot-card">
+              <div className="plot-card-header">
+                <div className="plot-card-title">
+                  <Waves size={16} className="text-cyan" />
+                  <span>Significant Wave Height &amp; Period</span>
+                </div>
+                <span className="plot-card-badge">Max: {stats.maxWaveHeight.toFixed(1)}m @ {stats.maxWavePeriod.toFixed(0)}s</span>
+              </div>
+              <div className="plot-canvas-container">
+                <Line data={waveChartData} options={waveOptions} />
+              </div>
+            </div>
+
+            {/* Chart 4: SOG */}
             <div className="plot-card">
               <div className="plot-card-header">
                 <div className="plot-card-title">
@@ -876,20 +1095,6 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
               </div>
               <div className="plot-canvas-container">
                 <Line data={sogChartData} options={sogOptions} />
-              </div>
-            </div>
-
-            {/* Chart 4: Heel */}
-            <div className="plot-card">
-              <div className="plot-card-header">
-                <div className="plot-card-title">
-                  <Activity size={16} className="text-warning" />
-                  <span>Estimated Heel Angle</span>
-                </div>
-                <span className="plot-card-badge">Avg: {stats.avgHeel.toFixed(1)}° • Max: {stats.maxHeel.toFixed(1)}°</span>
-              </div>
-              <div className="plot-canvas-container">
-                <Line data={heelChartData} options={heelOptions} />
               </div>
             </div>
           </div>
@@ -916,12 +1121,27 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
             <div className="plot-card-header">
               <div className="plot-card-title">
                 <Wind size={18} className="text-emerald" />
-                <span>True Wind Speed (TWS) vs Passage Time</span>
+                <span>True Wind Speed &amp; Peak Gust vs Passage Time</span>
               </div>
-              <span className="plot-card-badge">Lowest: {stats.minWind.toFixed(1)} kts • Highest: {stats.maxWind.toFixed(1)} kts • Mean: {stats.avgWind.toFixed(1)} kts</span>
+              <span className="plot-card-badge">Lowest: {stats.minWind.toFixed(1)} kts • Highest: {stats.maxWind.toFixed(1)} kts • Peak Gust: {stats.maxGust.toFixed(1)} kts</span>
             </div>
             <div className="plot-canvas-container-large">
               <Line data={twsChartData} options={twsOptions} />
+            </div>
+          </div>
+        )}
+
+        {chartViewMode === 'wave' && (
+          <div className="plot-card plot-card-full">
+            <div className="plot-card-header">
+              <div className="plot-card-title">
+                <Waves size={18} className="text-cyan" />
+                <span>Sea State: Wave Height &amp; Period vs Passage Time</span>
+              </div>
+              <span className="plot-card-badge">Avg Wave: {stats.avgWaveHeight.toFixed(1)}m • Peak Wave: {stats.maxWaveHeight.toFixed(1)}m @ {stats.maxWavePeriod.toFixed(0)}s</span>
+            </div>
+            <div className="plot-canvas-container-large">
+              <Line data={waveChartData} options={waveOptions} />
             </div>
           </div>
         )}
