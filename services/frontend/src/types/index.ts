@@ -3,6 +3,58 @@ export interface Point {
   lon: number;
 }
 
+export type WeatherModelId = 'gfs_0p25' | 'ifs_0p25' | 'icon_global' | string;
+
+export interface WeatherModelMeta {
+  id: WeatherModelId;
+  name: string;
+  shortName: string;
+  center: string;
+  resolution: string;
+  color: string;
+  lightColor: string;
+  badgeBg: string;
+  badgeBorder: string;
+}
+
+export const WEATHER_MODELS: Record<string, WeatherModelMeta> = {
+  gfs_0p25: {
+    id: 'gfs_0p25',
+    name: 'NOAA GFS (0.25°)',
+    shortName: 'GFS 0.25°',
+    center: 'NOAA NCEP (USA)',
+    resolution: '0.25° Global',
+    color: '#0284c7',
+    lightColor: '#38bdf8',
+    badgeBg: 'rgba(56, 189, 248, 0.15)',
+    badgeBorder: 'rgba(56, 189, 248, 0.4)',
+  },
+  ifs_0p25: {
+    id: 'ifs_0p25',
+    name: 'ECMWF IFS (0.25°)',
+    shortName: 'ECMWF 0.25°',
+    center: 'ECMWF (Europe)',
+    resolution: '0.25° Global',
+    color: '#8b5cf6',
+    lightColor: '#a855f7',
+    badgeBg: 'rgba(168, 85, 247, 0.15)',
+    badgeBorder: 'rgba(168, 85, 247, 0.4)',
+  },
+  icon_global: {
+    id: 'icon_global',
+    name: 'DWD ICON (Global)',
+    shortName: 'ICON Global',
+    center: 'DWD (Germany)',
+    resolution: '0.25° Regular',
+    color: '#f59e0b',
+    lightColor: '#fbbf24',
+    badgeBg: 'rgba(245, 158, 11, 0.15)',
+    badgeBorder: 'rgba(245, 158, 11, 0.4)',
+  },
+};
+
+export const DEFAULT_WEATHER_MODEL: WeatherModelId = 'gfs_0p25';
+
 export interface BoatPreset {
   id: string;
   name: string;
@@ -103,6 +155,7 @@ export interface WindCondition {
 }
 
 export interface WeatherGridResponse {
+  model?: string;
   time: string;
   min_lat: number;
   max_lat: number;
@@ -152,6 +205,14 @@ export interface RouteResult {
   waypoints: Waypoint[];
   isochrones: IsochroneWave[];
   destination_reached: boolean;
+  model_id?: WeatherModelId;
+}
+
+export type MultiRouteResult = Record<string, RouteResult>;
+
+export interface MultiModelRouteResponse extends RouteResult {
+  active_model: string;
+  routes: Record<string, RouteResult>;
 }
 
 export interface RoutePreset {

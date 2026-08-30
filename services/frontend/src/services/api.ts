@@ -1,4 +1,14 @@
-import { BoatDetail, BoatPreset, CustomBoatFile, LandmaskPolygon, LandmaskResponse, Point, RouteResult, SolveMatrixResponse, WeatherGridResponse } from '../types';
+import {
+  BoatDetail,
+  BoatPreset,
+  CustomBoatFile,
+  LandmaskPolygon,
+  LandmaskResponse,
+  Point,
+  MultiModelRouteResponse,
+  SolveMatrixResponse,
+  WeatherGridResponse,
+} from '../types';
 
 export const ROUTE_PRESETS = [
   {
@@ -275,6 +285,7 @@ export async function calculateRoute(params: {
   dest: Point;
   startTime?: string;
   boatPreset: string;
+  model?: string;
   timeStepHours?: number;
   tackPenaltyMinutes?: number;
   gybePenaltyMinutes?: number;
@@ -285,7 +296,7 @@ export async function calculateRoute(params: {
     twa_list: number[];
     speed_matrix: number[][];
   };
-}): Promise<RouteResult> {
+}): Promise<MultiModelRouteResponse> {
   const res = await fetch('/api/v1/route', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -294,6 +305,7 @@ export async function calculateRoute(params: {
       dest: params.dest,
       start_time: params.startTime ? new Date(params.startTime).toISOString() : undefined,
       boat_preset: params.boatPreset,
+      model: params.model || 'all',
       time_step_hours: params.timeStepHours || 2.0,
       tack_penalty_minutes: params.tackPenaltyMinutes,
       gybe_penalty_minutes: params.gybePenaltyMinutes,
@@ -302,7 +314,7 @@ export async function calculateRoute(params: {
     }),
   });
 
-  return await parseApiResponse<RouteResult>(res, 'Routing calculation failed');
+  return await parseApiResponse<MultiModelRouteResponse>(res, 'Routing calculation failed');
 }
 
 export function parsePolFile(content: string, filename: string = 'custom_polar.pol'): SolveMatrixResponse {
@@ -598,11 +610,13 @@ export async function fetchWeatherGrid(params: {
   latStep?: number;
   lonStep?: number;
   time?: string;
+  model?: string;
 }): Promise<WeatherGridResponse> {
   const res = await fetch('/api/v1/weather/grid', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      model: params.model,
       min_lat: params.minLat,
       max_lat: params.maxLat,
       min_lon: params.minLon,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RouteResult } from '../types';
+import { MultiRouteResult, RouteResult, WEATHER_MODELS, WeatherModelId } from '../types';
 import { TimelineTable } from './TimelineTable';
 import {
   Play,
@@ -23,6 +23,9 @@ const SPEED_TO_DURATION_SEC: Record<AnimationSpeed, number> = {
 
 interface TimelineScrubberProps {
   routeResult: RouteResult | null;
+  multiRouteResult?: MultiRouteResult | null;
+  activeModel?: WeatherModelId;
+  onActiveModelChange?: (modelId: WeatherModelId) => void;
   currentIndex: number;
   onIndexChange: (idx: number) => void;
   departureTime: string;
@@ -34,6 +37,9 @@ interface TimelineScrubberProps {
 
 export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   routeResult,
+  multiRouteResult,
+  activeModel = 'gfs_0p25',
+  onActiveModelChange,
   currentIndex,
   onIndexChange,
   departureTime,
@@ -71,7 +77,6 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     }
   };
 
-  // Recalculate is active when any setting (boat, penalties, departure time, waypoints) has changed
   const isDepartureChanged = routeResult
     ? normalizeTimeStr(departureTime) !== normalizeTimeStr(routeResult.start_time)
     : false;
@@ -148,11 +153,11 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="SailVPP-Routing" xmlns="http://www.topografix.com/GPX/1/1">
   <metadata>
-    <name>${routeResult.boat_name} Route</name>
+    <name>${routeResult.boat_name} (${activeModel}) Route</name>
     <time>${routeResult.start_time}</time>
   </metadata>
   <rte>
-    <name>${routeResult.boat_name} Optimal Weather Route</name>
+    <name>${routeResult.boat_name} Optimal Weather Route [${activeModel}]</name>
     ${routeResult.waypoints
       .map(
         (wp) =>
@@ -165,7 +170,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `route_${routeResult.boat_name.replace(/\s+/g, '_')}.gpx`;
+    a.download = `route_${routeResult.boat_name.replace(/\s+/g, '_')}_${activeModel}.gpx`;
     a.click();
   };
 
@@ -197,7 +202,6 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     return (
       <div className="timeline-bar uncalculated-dock mobile-bottom-sheet">
         <div className="uncalculated-dock-inner">
-          
           {/* Departure Date & Time */}
           <div className="dock-input-group">
             <label className="dock-label">
@@ -221,16 +225,15 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             {loading ? (
               <>
                 <RotateCw size={16} className="animate-spin" />
-                <span>Propagating...</span>
+                <span>Propagating Multi-Models...</span>
               </>
             ) : (
               <>
                 <Play size={16} />
-                <span>Calculate Route</span>
+                <span>Calculate Routes</span>
               </>
             )}
           </button>
-
         </div>
       </div>
     );
@@ -320,17 +323,62 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           </div>
         </div>
 
+        {/* Model Selector Pills */}
+        {multiRouteResult && Object.keys(multiRouteResult).length > 1 && (
+          <div className="model-segmented-switcher">
+            {Object.entries(multiRouteResult).map(([mId, r]) => {
+              const meta = WEATHER_MODELS[mId] || {
+                id: mId,
+                name: mId.toUpperCase(),
+                shortName: mId,
+                color: '#0284c7',
+                lightColor: '#38bdf8',
+                badgeBg: 'rgba(56, 189, 248, 0.15)',
+                badgeBorder: 'rgba(56, 189, 248, 0.4)',
+              };
+              const isSelected = mId === activeModel;
+              const durHours = r?.total_duration_hours || 0;
+              const durStr = durHours >= 24
+                ? `${Math.floor(durHours / 24)}d ${Math.round(durHours % 24)}h`
+                : `${durHours.toFixed(1)}h`;
+
+              return (
+                <button
+                  key={mId}
+                  type="button"
+                  className={`model-pill-select-btn ${isSelected ? 'selected' : ''}`}
+                  onClick={() => onActiveModelChange?.(mId)}
+                  title={`Switch active weather model to ${meta.name}`}
+                  style={{
+                    borderColor: isSelected ? meta.lightColor : 'rgba(148, 163, 184, 0.2)',
+                    backgroundColor: isSelected ? meta.badgeBg : 'rgba(15, 23, 42, 0.6)',
+                  }}
+                >
+                  <span
+                    className="model-status-dot"
+                    style={{ backgroundColor: isSelected ? meta.lightColor : meta.color }}
+                  />
+                  <span className="model-btn-name">{meta.shortName}</span>
+                  <span className="model-btn-duration" style={{ color: isSelected ? meta.lightColor : '#94a3b8' }}>
+                    {durStr}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Progress % */}
         <span className="timeline-progress-badge">{progressPercent}%</span>
 
-        {/* Action Buttons: Recalculate (always active, pops up departure dialog) & GPX Export */}
+        {/* Action Buttons: Recalculate & GPX Export */}
         <div className="dock-actions-cluster">
           <button
             type="button"
             className={`dock-recalc-btn ${isRecalcActive ? 'active-changed' : ''}`}
             onClick={handleOpenDateModal}
             disabled={loading}
-            title="Change departure time & recalculate route"
+            title="Change departure time & recalculate routes"
           >
             <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
             <span>{loading ? 'Solving...' : 'Recalculate'}</span>
@@ -348,7 +396,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
         </div>
       </div>
 
-      {/* Compact Passage Timeline Table Row (Displayed directly on desktop and mobile) */}
+      {/* Compact Passage Timeline Table Row */}
       <TimelineTable
         routeResult={routeResult}
         currentIndex={currentIndex}
@@ -375,7 +423,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
 
             <div className="departure-modal-body">
               <p className="departure-modal-desc">
-                Select a new departure date and time in UTC. Updating will recalculate the optimal route against the GFS weather forecast starting at this time.
+                Select a new departure date and time in UTC. Updating will recalculate optimal routes across all available weather models (NOAA GFS, ECMWF IFS, DWD ICON).
               </p>
 
               <div className="input-group">

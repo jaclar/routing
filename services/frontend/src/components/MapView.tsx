@@ -1,7 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from '../types';
+import {
+  LandmaskPolygon,
+  MultiRouteResult,
+  Point,
+  RouteResult,
+  WEATHER_MODELS,
+  WeatherGridResponse,
+  WeatherModelId,
+} from '../types';
 
 // Fix Leaflet default marker icons for Webpack/Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -19,6 +27,9 @@ interface MapViewProps {
   placementMode: 'start' | 'dest';
   onPlacementModeChange: (mode: 'start' | 'dest') => void;
   routeResult: RouteResult | null;
+  multiRouteResult?: MultiRouteResult | null;
+  activeModel?: WeatherModelId;
+  onSelectModel?: (modelId: WeatherModelId) => void;
   currentWaypointIndex: number;
   weatherGrid: WeatherGridResponse | null;
   landmaskPolygons: LandmaskPolygon[];
@@ -28,20 +39,19 @@ interface MapViewProps {
 }
 
 /**
- * Color mapping according to user specification:
- * 0 kts: Blue
- * 10 kts: Green
- * 20 kts: Yellow
- * 30 kts: Orange
- * 40 kts: Red
- * 50+ kts: Violet
+ * Color mapping according to wind intensity specification:
+ * 0 kts: Blue (29, 78, 216)
+ * 10 kts: Green (16, 185, 129)
+ * 20 kts: Yellow (250, 204, 21)
+ * 30 kts: Orange (249, 115, 22)
+ * 40 kts: Red (239, 68, 68)
+ * 50+ kts: Violet (168, 85, 247)
  */
 function getWindColorRGB(tws: number): [number, number, number, number] {
-  const alpha = 0.78; // Increased intensity
-  if (tws <= 0) return [29, 78, 216, alpha]; // 0 kt Blue
+  const alpha = 0.78;
+  if (tws <= 0) return [29, 78, 216, alpha];
   if (tws < 10) {
     const f = tws / 10;
-    // Blue (29, 78, 216) -> Green (16, 185, 129)
     return [
       Math.round(29 + f * (16 - 29)),
       Math.round(78 + f * (185 - 78)),
@@ -50,7 +60,6 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
     ];
   } else if (tws < 20) {
     const f = (tws - 10) / 10;
-    // Green (16, 185, 129) -> Yellow (250, 204, 21)
     return [
       Math.round(16 + f * (250 - 16)),
       Math.round(185 + f * (204 - 185)),
@@ -59,7 +68,6 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
     ];
   } else if (tws < 30) {
     const f = (tws - 20) / 10;
-    // Yellow (250, 204, 21) -> Orange (249, 115, 22)
     return [
       Math.round(250 + f * (249 - 250)),
       Math.round(204 + f * (115 - 204)),
@@ -68,7 +76,6 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
     ];
   } else if (tws < 40) {
     const f = (tws - 30) / 10;
-    // Orange (249, 115, 22) -> Red (239, 68, 68)
     return [
       Math.round(249 + f * (239 - 249)),
       Math.round(115 + f * (68 - 115)),
@@ -77,7 +84,6 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
     ];
   } else if (tws < 50) {
     const f = (tws - 40) / 10;
-    // Red (239, 68, 68) -> Violet (168, 85, 247)
     return [
       Math.round(239 + f * (168 - 239)),
       Math.round(68 + f * (85 - 68)),
@@ -86,7 +92,6 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
     ];
   } else {
     const f = Math.min((tws - 50) / 20, 1.0);
-    // Violet (168, 85, 247) -> Deep Violet (139, 92, 246)
     return [
       Math.round(168 + f * (139 - 168)),
       Math.round(85 + f * (92 - 85)),
@@ -98,133 +103,98 @@ function getWindColorRGB(tws: number): [number, number, number, number] {
 
 /**
  * Generates an SVG string for a classical meteorological wind barb.
- * - Calm (< 2.5 kts): small open circle
- * - 50 kts: filled pennant (triangle)
- * - 10 kts: full barb line
- * - 5 kts: half barb line
- * - Oriented such that the shaft points in the direction the wind is blowing FROM (standard meteorological convention).
  */
-function createClassicalWindBarbSVG(tws: number, twd: number): string {
-  const speed = Math.round(tws / 5) * 5;
+function createClassicalWindBarbSVG(twsKts: number, twdDeg: number): string {
+  const roundedSpd = Math.round(twsKts / 5) * 5;
+  const flags = Math.floor(roundedSpd / 50);
+  let rem = roundedSpd % 50;
+  const fullBarbs = Math.floor(rem / 10);
+  rem = rem % 10;
+  const halfBarbs = Math.floor(rem / 5);
 
-  if (speed < 3) {
+  let elements = '';
+  if (roundedSpd < 2.5) {
+    elements = `<circle cx="16" cy="16" r="3.5" fill="none" stroke="#f8fafc" stroke-width="1.6" opacity="0.85"/>`;
     return `
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:32px; height:32px;">
-        <svg width="24" height="24" viewBox="0 0 32 32">
-          <circle cx="16" cy="16" r="3.5" fill="none" stroke="#ffffff" stroke-width="2" style="filter: drop-shadow(0 0 2px rgba(0,0,0,0.9));" />
-        </svg>
-        <span style="font-size:8px; font-weight:700; color:#f8fafc; margin-top:-2px; text-shadow:0 0 3px #000, 0 0 5px #000;">
-          ${Math.round(tws)}
-        </span>
-      </div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+        ${elements}
+      </svg>
     `;
   }
 
-  const num50 = Math.floor(speed / 50);
-  const rem50 = speed % 50;
-  const num10 = Math.floor(rem50 / 10);
-  const num5 = Math.floor((rem50 % 10) / 5);
+  // Staff pointing FROM wind direction
+  elements += `<line x1="16" y1="16" x2="16" y2="3.5" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round" opacity="0.9"/>`;
 
-  const barbLines: string[] = [];
-  let y = 3;
-  const staffX = 16;
-  const spacing = 3.5;
+  let yPos = 3.5;
+  const barbSpacing = 2.8;
 
-  // 50-kt flags (pennants)
-  for (let k = 0; k < num50; k++) {
-    barbLines.push(`
-      <polygon points="${staffX},${y} ${staffX + 8.5},${y + 2.5} ${staffX},${y + 5}" fill="#ffffff" stroke="#090e17" stroke-width="0.7" />
-    `);
-    y += 5.5;
+  for (let i = 0; i < flags; i++) {
+    elements += `<polygon points="16,${yPos} 23,${yPos + 2.0} 16,${yPos + 4.0}" fill="#f8fafc" opacity="0.95"/>`;
+    yPos += 4.5;
   }
-
-  // 10-kt full barbs
-  for (let k = 0; k < num10; k++) {
-    barbLines.push(`
-      <line x1="${staffX}" y1="${y}" x2="${staffX + 8.5}" y2="${y - 3.5}" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
-    `);
-    y += spacing;
+  for (let i = 0; i < fullBarbs; i++) {
+    elements += `<line x1="16" y1="${yPos}" x2="22.5" y2="${yPos - 2.0}" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round" opacity="0.95"/>`;
+    yPos += barbSpacing;
   }
-
-  // 5-kt half barb
-  if (num5 > 0) {
-    const y5 = num50 === 0 && num10 === 0 ? y + spacing : y;
-    barbLines.push(`
-      <line x1="${staffX}" y1="${y5}" x2="${staffX + 4.8}" y2="${y5 - 2}" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
-    `);
+  for (let i = 0; i < halfBarbs; i++) {
+    elements += `<line x1="16" y1="${yPos}" x2="19.5" y2="${yPos - 1.2}" stroke="#f8fafc" stroke-width="1.8" stroke-linecap="round" opacity="0.95"/>`;
+    yPos += barbSpacing;
   }
 
   return `
-    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:34px; height:34px;">
-      <svg width="28" height="28" viewBox="0 0 32 32" style="transform: rotate(${twd}deg); transform-origin: 16px 25px; filter: drop-shadow(0 0 2.5px rgba(0,0,0,0.95));">
-        <!-- Main barb shaft -->
-        <line x1="16" y1="25" x2="16" y2="3" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
-        <!-- Station anchor dot -->
-        <circle cx="16" cy="25" r="1.8" fill="#ffffff" stroke="#090e17" stroke-width="0.5" />
-        <!-- Pennants & barbs -->
-        ${barbLines.join('\n')}
-      </svg>
-      <span style="font-size:8.5px; font-weight:700; color:#ffffff; margin-top:-3px; text-shadow:0 0 3px #000, 0 0 5px #000;">
-        ${Math.round(tws)}
-      </span>
-    </div>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" style="transform: rotate(${twdDeg}deg); transform-origin: 16px 16px; filter: drop-shadow(0 0 2px rgba(0,0,0,0.85));">
+      ${elements}
+    </svg>
   `;
 }
 
-/**
- * Renders a smooth bilinearly-interpolated wind intensity heatmap canvas.
- */
 function renderWindHeatmapCanvas(weatherGrid: WeatherGridResponse): HTMLCanvasElement {
   const { grid } = weatherGrid;
   const nLat = grid.length;
   const nLon = grid[0]?.length || 0;
 
-  const targetW = 256;
-  const targetH = 256;
   const canvas = document.createElement('canvas');
-  canvas.width = targetW;
-  canvas.height = targetH;
+  canvas.width = Math.max(nLon * 16, 256);
+  canvas.height = Math.max(nLat * 16, 256);
+
   const ctx = canvas.getContext('2d');
   if (!ctx || nLat === 0 || nLon === 0) return canvas;
 
-  const imgData = ctx.createImageData(targetW, targetH);
+  const gridCanvas = document.createElement('canvas');
+  gridCanvas.width = nLon;
+  gridCanvas.height = nLat;
+  const gridCtx = gridCanvas.getContext('2d');
+  if (!gridCtx) return canvas;
+
+  const imgData = gridCtx.createImageData(nLon, nLat);
   const data = imgData.data;
 
-  for (let py = 0; py < targetH; py++) {
-    // py=0 is top (max_lat), py=targetH-1 is bottom (min_lat)
-    const latFrac = 1 - py / (targetH - 1);
-    const gridY = latFrac * (nLat - 1);
-    const y0 = Math.floor(gridY);
-    const y1 = Math.min(y0 + 1, nLat - 1);
-    const fy = gridY - y0;
-
-    for (let px = 0; px < targetW; px++) {
-      const lonFrac = px / (targetW - 1);
-      const gridX = lonFrac * (nLon - 1);
-      const x0 = Math.floor(gridX);
-      const x1 = Math.min(x0 + 1, nLon - 1);
-      const fx = gridX - x0;
-
-      const s00 = grid[y0]?.[x0]?.tws_kts ?? 0;
-      const s10 = grid[y0]?.[x1]?.tws_kts ?? 0;
-      const s01 = grid[y1]?.[x0]?.tws_kts ?? 0;
-      const s11 = grid[y1]?.[x1]?.tws_kts ?? 0;
-
-      const sTop = s00 * (1 - fx) + s10 * fx;
-      const sBot = s01 * (1 - fx) + s11 * fx;
-      const tws = sTop * (1 - fy) + sBot * fy;
-
-      const [r, g, b, a] = getWindColorRGB(tws);
-
-      const pIdx = (py * targetW + px) * 4;
-      data[pIdx] = r;
-      data[pIdx + 1] = g;
-      data[pIdx + 2] = b;
-      data[pIdx + 3] = Math.round(a * 255);
+  for (let i = 0; i < nLat; i++) {
+    const rowIdx = nLat - 1 - i;
+    for (let j = 0; j < nLon; j++) {
+      const wind = grid[rowIdx]?.[j];
+      const pixelIdx = (i * nLon + j) * 4;
+      if (wind) {
+        const [r, g, b, a] = getWindColorRGB(wind.tws_kts);
+        data[pixelIdx] = r;
+        data[pixelIdx + 1] = g;
+        data[pixelIdx + 2] = b;
+        data[pixelIdx + 3] = Math.round(a * 255);
+      } else {
+        data[pixelIdx] = 0;
+        data[pixelIdx + 1] = 0;
+        data[pixelIdx + 2] = 0;
+        data[pixelIdx + 3] = 0;
+      }
     }
   }
 
-  ctx.putImageData(imgData, 0, 0);
+  gridCtx.putImageData(imgData, 0, 0);
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(gridCanvas, 0, 0, canvas.width, canvas.height);
+
   return canvas;
 }
 
@@ -236,6 +206,9 @@ export const MapView: React.FC<MapViewProps> = ({
   placementMode,
   onPlacementModeChange,
   routeResult,
+  multiRouteResult,
+  activeModel = 'gfs_0p25',
+  onSelectModel,
   currentWaypointIndex,
   weatherGrid,
   landmaskPolygons,
@@ -243,96 +216,67 @@ export const MapView: React.FC<MapViewProps> = ({
   showWindGrid,
   showLandmask,
 }) => {
-  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-
-  const placementModeRef = useRef<'start' | 'dest'>(placementMode);
-  const onStartChangeRef = useRef(onStartChange);
-  const onDestChangeRef = useRef(onDestChange);
-  const onPlacementModeChangeRef = useRef(onPlacementModeChange);
-
-  useEffect(() => {
-    onStartChangeRef.current = onStartChange;
-  }, [onStartChange]);
-
-  useEffect(() => {
-    onDestChangeRef.current = onDestChange;
-  }, [onDestChange]);
-
-  useEffect(() => {
-    placementModeRef.current = placementMode;
-  }, [placementMode]);
-
-  useEffect(() => {
-    onPlacementModeChangeRef.current = onPlacementModeChange;
-  }, [onPlacementModeChange]);
 
   const layersRef = useRef<{
     startMarker?: L.Marker;
     destMarker?: L.Marker;
-    boatMarker?: L.Marker;
     baselinePolyline?: L.Polyline;
-    routePolyline?: L.Polyline;
-    isochroneGroup?: L.LayerGroup;
-    windGroup?: L.LayerGroup;
+    boatMarker?: L.Marker;
+    isochroneGroup?: L.FeatureGroup;
+    windGroup?: L.FeatureGroup;
+    landmaskGroup?: L.FeatureGroup;
+    multiRouteGroup?: L.FeatureGroup;
     windHeatmapOverlay?: L.ImageOverlay;
-    landmaskGroup?: L.LayerGroup;
   }>({});
 
-  // 1. Initialize Map and click handler
+  const onStartChangeRef = useRef(onStartChange);
+  const onDestChangeRef = useRef(onDestChange);
+  onStartChangeRef.current = onStartChange;
+  onDestChangeRef.current = onDestChange;
+
+  // 1. Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
       center: [(startPoint.lat + destPoint.lat) / 2, (startPoint.lon + destPoint.lon) / 2],
-      zoom: 4,
-      zoomControl: false,
-      preferCanvas: true,
+      zoom: 5,
+      zoomControl: true,
     });
 
-    L.control.zoom({ position: 'topright' }).addTo(map);
+    // Dark Matter tile layer
+    L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19,
+      }
+    ).addTo(map);
 
-    // Nautical CartoDB Voyager Base Layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; CARTO &copy; OpenStreetMap contributors',
-      maxZoom: 19,
-      subdomains: 'abcd',
-    }).addTo(map);
+    layersRef.current.isochroneGroup = L.featureGroup().addTo(map);
+    layersRef.current.multiRouteGroup = L.featureGroup().addTo(map);
+    layersRef.current.windGroup = L.featureGroup().addTo(map);
+    layersRef.current.landmaskGroup = L.featureGroup().addTo(map);
 
-    // OpenSeaMap Nautical Seamarks overlay
-    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-      attribution: 'Map data &copy; OpenSeaMap',
-      opacity: 0.7,
-      maxZoom: 18,
-    }).addTo(map);
-
-    layersRef.current.landmaskGroup = L.layerGroup().addTo(map);
-    layersRef.current.isochroneGroup = L.layerGroup().addTo(map);
-    layersRef.current.windGroup = L.layerGroup().addTo(map);
-
-    // Click on map to place Start or Finish point
+    // Map click handler for interactive waypoint placement
     map.on('click', (e: L.LeafletMouseEvent) => {
-      const clickedPt: Point = {
-        lat: Number(e.latlng.lat.toFixed(4)),
-        lon: Number(e.latlng.lng.toFixed(4)),
-      };
+      const clickedLat = Number(e.latlng.lat.toFixed(4));
+      const clickedLon = Number(e.latlng.lng.toFixed(4));
 
-      if (placementModeRef.current === 'start') {
-        onStartChangeRef.current?.(clickedPt);
-        onPlacementModeChangeRef.current?.('dest');
+      if (placementMode === 'start') {
+        onStartChangeRef.current?.({ lat: clickedLat, lon: clickedLon });
+        onPlacementModeChange('dest');
       } else {
-        onDestChangeRef.current?.(clickedPt);
-        onPlacementModeChangeRef.current?.('start');
+        onDestChangeRef.current?.({ lat: clickedLat, lon: clickedLon });
+        onPlacementModeChange('start');
       }
     });
 
     mapRef.current = map;
-
-    setTimeout(() => {
-      if (mapRef.current) {
-        mapRef.current.invalidateSize();
-      }
-    }, 100);
 
     return () => {
       map.remove();
@@ -340,7 +284,7 @@ export const MapView: React.FC<MapViewProps> = ({
     };
   }, []);
 
-  // 2. Render Draggable Start & Destination Markers and Baseline Line
+  // 2. Render Start & Destination Markers and Baseline
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -385,7 +329,7 @@ export const MapView: React.FC<MapViewProps> = ({
       }
     };
 
-    // Create Start Marker (Draggable)
+    // Create Start Marker
     const startMarker = L.marker([startPoint.lat, startPoint.lon], {
       icon: startIcon,
       draggable: true,
@@ -413,7 +357,7 @@ export const MapView: React.FC<MapViewProps> = ({
     startMarker.addTo(map);
     layersRef.current.startMarker = startMarker;
 
-    // Create Destination Marker (Draggable)
+    // Create Destination Marker
     const destMarker = L.marker([destPoint.lat, destPoint.lon], {
       icon: destIcon,
       draggable: true,
@@ -441,7 +385,7 @@ export const MapView: React.FC<MapViewProps> = ({
     destMarker.addTo(map);
     layersRef.current.destMarker = destMarker;
 
-    // Draw connecting baseline
+    // Draw connecting baseline if no route calculated
     if (!routeResult) {
       layersRef.current.baselinePolyline = L.polyline(
         [
@@ -458,7 +402,7 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [startPoint, destPoint, routeResult]);
 
-  // 3. Render Wind Heatmap Background & Classical Wind Barbs
+  // 3. Render Wind Heatmap Background & Wind Barbs for Active Model
   useEffect(() => {
     const map = mapRef.current;
     const group = layersRef.current.windGroup;
@@ -476,7 +420,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
     const { grid, min_lat, max_lat, min_lon, max_lon, lat_step, lon_step } = weatherGrid;
 
-    // A. Render Smooth Wind Intensity Heatmap Overlay (0kt Blue, 15kt Yellow, 30kt Orange, 45+kt Violet)
+    // A. Render Smooth Wind Intensity Heatmap Overlay
     const canvas = renderWindHeatmapCanvas(weatherGrid);
     const bounds = L.latLngBounds([
       [min_lat, min_lon],
@@ -494,7 +438,7 @@ export const MapView: React.FC<MapViewProps> = ({
       }).addTo(map);
     }
 
-    // B. Render Classical Meteorological Wind Barbs
+    // B. Render Meteorological Wind Barbs
     for (let i = 0; i < grid.length; i += 1) {
       const lat = min_lat + i * lat_step;
       for (let j = 0; j < grid[i].length; j += 1) {
@@ -515,57 +459,110 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [weatherGrid, showWindGrid]);
 
-  // 4. Render Route and Isochrones
+  // 4. Render Multi-Model Routes and Active Isochrones
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    const group = layersRef.current.multiRouteGroup;
+    const isoGroup = layersRef.current.isochroneGroup;
+    if (!map || !group || !isoGroup) return;
 
-    if (layersRef.current.routePolyline) {
-      layersRef.current.routePolyline.remove();
-    }
-    if (layersRef.current.isochroneGroup) {
-      layersRef.current.isochroneGroup.clearLayers();
-    }
+    group.clearLayers();
+    isoGroup.clearLayers();
 
-    if (!routeResult) return;
-
-    // A. Render Isochrone Waves
-    if (showIsochrones && routeResult.isochrones && layersRef.current.isochroneGroup) {
-      routeResult.isochrones.forEach((wave, idx) => {
-        if (idx % 2 === 0 && wave.points.length > 1) {
-          const latlngs = wave.points.map((p) => [p.lat, p.lon] as [number, number]);
-          L.polyline(latlngs, {
-            color: '#38bdf8',
-            weight: 1.2,
-            opacity: 0.45,
-            dashArray: '3, 4',
-          }).addTo(layersRef.current.isochroneGroup!);
-        }
+    // Prepare dictionary of routes to display
+    const routesToDisplay: Record<string, RouteResult> = {};
+    if (multiRouteResult && Object.keys(multiRouteResult).length > 0) {
+      Object.entries(multiRouteResult).forEach(([mId, r]) => {
+        if (r) routesToDisplay[mId] = r;
       });
+    } else if (routeResult) {
+      routesToDisplay[activeModel] = routeResult;
     }
 
-    // B. Render Optimal Route Polyline
-    const routeCoords = routeResult.waypoints.map((wp) => [wp.lat, wp.lon] as [number, number]);
-    const routePoly = L.polyline(routeCoords, {
-      color: '#0284c7',
-      weight: 4.5,
-      opacity: 0.95,
-      lineCap: 'round',
-      lineJoin: 'round',
-    }).addTo(map);
+    if (Object.keys(routesToDisplay).length === 0) return;
 
-    layersRef.current.routePolyline = routePoly;
+    const allCoords: [number, number][] = [];
 
-    // Fit map bounds to show full route
-    const bounds = L.latLngBounds([
-      [startPoint.lat, startPoint.lon],
-      [destPoint.lat, destPoint.lon],
-      ...routeCoords,
-    ]);
-    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
-  }, [routeResult, showIsochrones, startPoint, destPoint]);
+    // Render each model route track
+    Object.entries(routesToDisplay).forEach(([mId, r]) => {
+      const meta = WEATHER_MODELS[mId] || {
+        id: mId,
+        name: mId.toUpperCase(),
+        shortName: mId,
+        color: '#0284c7',
+        lightColor: '#38bdf8',
+      };
 
-  // 5. Render Animated Boat Marker at current Waypoint
+      const isActive = mId === activeModel;
+      const routeCoords = r.waypoints.map((wp) => [wp.lat, wp.lon] as [number, number]);
+      allCoords.push(...routeCoords);
+
+      // A. Draw Route Polyline
+      const polyline = L.polyline(routeCoords, {
+        color: meta.color,
+        weight: isActive ? 4.8 : 3.0,
+        opacity: isActive ? 0.95 : 0.70,
+        dashArray: isActive ? undefined : '6, 6',
+        lineCap: 'round',
+        lineJoin: 'round',
+      });
+
+      if (isActive) {
+        polyline.bringToFront();
+      }
+
+      // Interactive Tooltip & Click-to-Select
+      const statusLabel = isActive
+        ? `<span style="color:${meta.lightColor}; font-weight:700;">★ ACTIVE MODEL</span>`
+        : `<span style="color:${meta.lightColor}; font-size:10px;">👉 Click to set active</span>`;
+
+      polyline.bindTooltip(
+        `<div style="font-family: var(--font-sans); font-size: 11px; line-height: 1.4;">
+           <b style="color:${meta.lightColor};">${meta.name}</b><br/>
+           Duration: <b>${r.total_duration_hours.toFixed(1)} hrs</b> (${(r.total_duration_hours / 24).toFixed(1)} days)<br/>
+           Distance: <b>${r.total_distance_nm.toFixed(1)} NM</b> (Avg ${r.average_speed_kts.toFixed(1)} kts)<br/>
+           Max Wind: <b>${r.max_wind_kts.toFixed(1)} kts</b> | Tacks: ${r.total_tacks}<br/>
+           ${statusLabel}
+         </div>`,
+        { sticky: true }
+      );
+
+      if (!isActive && onSelectModel) {
+        polyline.on('click', () => {
+          onSelectModel(mId);
+        });
+      }
+
+      group.addLayer(polyline);
+
+      // B. Draw Isochrones for Active Route (if toggled)
+      if (isActive && showIsochrones && r.isochrones) {
+        r.isochrones.forEach((wave, idx) => {
+          if (idx % 2 === 0 && wave.points.length > 1) {
+            const latlngs = wave.points.map((p) => [p.lat, p.lon] as [number, number]);
+            L.polyline(latlngs, {
+              color: meta.lightColor,
+              weight: 1.2,
+              opacity: 0.45,
+              dashArray: '3, 4',
+            }).addTo(isoGroup);
+          }
+        });
+      }
+    });
+
+    // Fit map bounds to show all tracks
+    if (allCoords.length > 0) {
+      const bounds = L.latLngBounds([
+        [startPoint.lat, startPoint.lon],
+        [destPoint.lat, destPoint.lon],
+        ...allCoords,
+      ]);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
+    }
+  }, [multiRouteResult, routeResult, activeModel, showIsochrones, startPoint, destPoint, onSelectModel]);
+
+  // 5. Render Animated Boat Marker for Active Route
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -576,30 +573,38 @@ export const MapView: React.FC<MapViewProps> = ({
 
     if (!routeResult || !routeResult.waypoints || routeResult.waypoints.length === 0) return;
 
+    const meta = WEATHER_MODELS[activeModel] || {
+      color: '#0284c7',
+      lightColor: '#38bdf8',
+      shortName: activeModel,
+    };
+
     const wp = routeResult.waypoints[currentWaypointIndex] || routeResult.waypoints[0];
     const boatIcon = L.divIcon({
       className: 'boat-marker',
       html: `
         <div style="transform: rotate(${wp.heading_deg}deg); transform-origin: center; display:flex; align-items:center; justify-content:center;">
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="#0284c7" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 0 8px rgba(2,132,199,0.9));">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="${meta.color}" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 0 8px ${meta.color});">
             <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
           </svg>
         </div>
       `,
-      iconSize: [30, 30],
-      iconAnchor: [15, 15],
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
     });
 
     layersRef.current.boatMarker = L.marker([wp.lat, wp.lon], { icon: boatIcon, zIndexOffset: 1000 })
       .bindPopup(`
-        <b>Boat: ${routeResult.boat_name}</b><br/>
-        Speed: <b>${wp.boat_speed_kts.toFixed(2)} kts</b><br/>
-        Heading: ${wp.heading_deg.toFixed(1)}°<br/>
-        TWS: ${wp.tws_kts.toFixed(1)} kts | TWA: ${wp.twa_deg.toFixed(1)}°<br/>
-        Dist to dest: ${wp.distance_to_dest_nm.toFixed(1)} NM
+        <div style="font-family: var(--font-sans); font-size: 12px; line-height: 1.4;">
+          <b>Boat: ${routeResult.boat_name}</b> <span style="color:${meta.lightColor}; font-size:10px;">[${meta.shortName}]</span><br/>
+          Speed: <b>${wp.boat_speed_kts.toFixed(2)} kts</b><br/>
+          Heading: ${wp.heading_deg.toFixed(1)}°<br/>
+          TWS: ${wp.tws_kts.toFixed(1)} kts | TWA: ${wp.twa_deg.toFixed(1)}°<br/>
+          Dist to dest: ${wp.distance_to_dest_nm.toFixed(1)} NM
+        </div>
       `)
       .addTo(map);
-  }, [routeResult, currentWaypointIndex]);
+  }, [routeResult, currentWaypointIndex, activeModel]);
 
   // 6. Render Landmass Collision Polygons Layer
   useEffect(() => {
@@ -618,10 +623,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
       const polygonLayer = L.polygon(latLngs, {
         renderer: canvasRenderer,
-        color: '#f59e0b',          // Amber warning stroke
+        color: '#f59e0b',
         weight: 2,
         dashArray: '5, 5',
-        fillColor: '#ef4444',      // Coral red collision zone
+        fillColor: '#ef4444',
         fillOpacity: 0.22,
       });
 

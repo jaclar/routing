@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Layers, Wind, Eye, Clock, ShieldAlert, Minus } from 'lucide-react';
+import { WEATHER_MODELS, WeatherModelId } from '../types';
 
 interface LayerTogglesProps {
   showIsochrones: boolean;
@@ -8,6 +9,7 @@ interface LayerTogglesProps {
   onToggleWindGrid: () => void;
   showLandmask: boolean;
   onToggleLandmask: () => void;
+  activeModel?: WeatherModelId;
   activeTime?: string;
 }
 
@@ -18,12 +20,20 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
   onToggleWindGrid,
   showLandmask,
   onToggleLandmask,
+  activeModel = 'gfs_0p25',
   activeTime,
 }) => {
-  // Minimized by default on mobile screens (width <= 768px)
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
   });
+
+  const modelMeta = WEATHER_MODELS[activeModel] || {
+    id: activeModel,
+    name: activeModel,
+    shortName: activeModel,
+    color: '#10b981',
+    lightColor: '#34d399',
+  };
 
   const formatTime = (iso?: string) => {
     if (!iso) return '';
@@ -35,7 +45,6 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
     }
   };
 
-  // When collapsed (mobile default): show only the symbol
   if (isCollapsed) {
     return (
       <button
@@ -82,10 +91,10 @@ export const LayerToggles: React.FC<LayerTogglesProps> = ({
           type="checkbox"
           checked={showWindGrid}
           onChange={onToggleWindGrid}
-          style={{ accentColor: '#10b981' }}
+          style={{ accentColor: modelMeta.color }}
         />
-        <Wind size={14} color="#10b981" />
-        <span>GFS Wind &amp; Barbs</span>
+        <Wind size={14} color={modelMeta.lightColor} />
+        <span>{modelMeta.shortName} Wind &amp; Barbs</span>
       </label>
 
       <label className="toggle-item">

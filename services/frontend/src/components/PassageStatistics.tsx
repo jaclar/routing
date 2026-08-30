@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RouteResult } from '../types';
+import { MultiRouteResult, RouteResult, WEATHER_MODELS, WeatherModelId } from '../types';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -40,9 +40,17 @@ ChartJS.register(
 
 interface PassageStatisticsProps {
   routeResult: RouteResult | null;
+  multiRouteResult?: MultiRouteResult | null;
+  activeModel?: WeatherModelId;
+  onSelectModel?: (modelId: WeatherModelId) => void;
 }
 
-export const PassageStatistics: React.FC<PassageStatisticsProps> = ({ routeResult }) => {
+export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
+  routeResult,
+  multiRouteResult,
+  activeModel = 'gfs_0p25',
+  onSelectModel,
+}) => {
   const [chartViewMode, setChartViewMode] = useState<'grid' | 'twa' | 'tws' | 'sog' | 'heel' | 'combined'>('grid');
 
   // Compute passage statistics
@@ -514,12 +522,128 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({ routeResul
         </div>
       </div>
 
+      {/* Multi-Model Comparison Table (if multiple models available) */}
+      {multiRouteResult && Object.keys(multiRouteResult).length > 1 && (
+        <div className="stats-table-section">
+          <div className="table-card multi-model-comparison-card">
+            <div className="table-card-header">
+              <Layers size={18} className="text-accent" />
+              <h3>Multi-Model Weather Forecast Comparison (NOAA GFS, ECMWF IFS, DWD ICON)</h3>
+            </div>
+
+            <div className="responsive-table-wrapper">
+              <table className="passage-summary-table multi-model-table">
+                <thead>
+                  <tr>
+                    <th>Weather Model</th>
+                    <th>Passage Duration</th>
+                    <th>Distance</th>
+                    <th>Avg Speed</th>
+                    <th>Max Wind</th>
+                    <th>Tacks / Gybes</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(multiRouteResult).map(([mId, r]) => {
+                    const meta = WEATHER_MODELS[mId] || {
+                      id: mId,
+                      name: mId.toUpperCase(),
+                      shortName: mId,
+                      color: '#0284c7',
+                      lightColor: '#38bdf8',
+                    };
+                    const isSelected = mId === activeModel;
+                    const durHours = r.total_duration_hours;
+                    const durDays = Math.floor(durHours / 24);
+                    const durRemHours = Math.floor(durHours % 24);
+                    const durMins = Math.round((durHours * 60) % 60);
+                    const durStr =
+                      durDays > 0
+                        ? `${durDays}d ${durRemHours}h ${durMins}m (${durHours.toFixed(1)}h)`
+                        : `${durRemHours}h ${durMins}m (${durHours.toFixed(1)}h)`;
+
+                    return (
+                      <tr key={mId} className={isSelected ? 'active-model-row' : ''}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span
+                              style={{
+                                width: '10px',
+                                height: '10px',
+                                borderRadius: '50%',
+                                backgroundColor: meta.color,
+                                display: 'inline-block',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <b>{meta.name}</b>
+                            {isSelected && (
+                              <span
+                                style={{
+                                  fontSize: '0.68rem',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                                  color: '#38bdf8',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Active
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="font-mono highlight-duration">{durStr}</td>
+                        <td className="font-mono">{r.total_distance_nm.toFixed(1)} NM</td>
+                        <td className="font-mono">{r.average_speed_kts.toFixed(2)} kts</td>
+                        <td className="font-mono text-emerald">{r.max_wind_kts.toFixed(1)} kts</td>
+                        <td className="font-mono">
+                          {r.total_tacks} / {r.total_gybes}
+                        </td>
+                        <td>
+                          {r.destination_reached ? (
+                            <span style={{ color: '#10b981', fontWeight: 600 }}>✓ Reached</span>
+                          ) : (
+                            <span style={{ color: '#f59e0b', fontWeight: 600 }}>Frontier</span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className={`btn-table-switch ${isSelected ? 'active' : ''}`}
+                            onClick={() => onSelectModel?.(mId)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              border: isSelected ? '1px solid #38bdf8' : '1px solid rgba(148, 163, 184, 0.2)',
+                              backgroundColor: isSelected ? 'rgba(56, 189, 248, 0.15)' : 'rgba(15, 23, 42, 0.6)',
+                              color: isSelected ? '#38bdf8' : '#cbd5e1',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {isSelected ? 'Selected' : 'View on Map'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Required Statistics Table */}
       <div className="stats-table-section">
         <div className="table-card">
           <div className="table-card-header">
             <Calendar size={18} className="text-accent" />
-            <h3>Comprehensive Passage Summary Table</h3>
+            <h3>Comprehensive Passage Summary Table ({WEATHER_MODELS[activeModel]?.name || activeModel})</h3>
           </div>
 
           <div className="responsive-table-wrapper">

@@ -3730,3 +3730,95 @@ body {
     padding: 68px 12px 24px 12px;
   }
 }
+
+/* =========================================================================
+   Multi-Model Weather Routing & Switcher Styling
+   ========================================================================= */
+
+.model-segmented-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 3px 6px;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.model-pill-select-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.6);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.model-pill-select-btn:hover {
+  border-color: rgba(56, 189, 248, 0.5);
+  transform: translateY(-1px);
+}
+
+.model-pill-select-btn.selected {
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+  font-weight: 600;
+}
+
+.model-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.model-btn-name {
+  font-family: var(--font-sans);
+}
+
+.model-btn-duration {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.sim-model-tag {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.multi-model-comparison-card {
+  margin-bottom: 20px;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%) !important;
+}
+
+.multi-model-table tr.active-model-row {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.multi-model-table tr.active-model-row td {
+  border-bottom-color: rgba(56, 189, 248, 0.3);
+}
+
+.btn-table-switch {
+  transition: all 0.2s ease;
+}
+
+.btn-table-switch:hover {
+  border-color: #38bdf8 !important;
+  color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.25) !important;
+}
+

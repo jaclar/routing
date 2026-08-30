@@ -6,7 +6,17 @@ import { WaypointControls } from './components/WaypointControls';
 import { SettingsView } from './components/SettingsView';
 import { VPPInspector } from './components/VPPInspector';
 import { PassageStatistics } from './components/PassageStatistics';
-import { BoatPreset, LandmaskPolygon, Point, RouteResult, WeatherGridResponse } from './types';
+import {
+  BoatPreset,
+  DEFAULT_WEATHER_MODEL,
+  LandmaskPolygon,
+  MultiRouteResult,
+  Point,
+  RouteResult,
+  WEATHER_MODELS,
+  WeatherGridResponse,
+  WeatherModelId,
+} from './types';
 import {
   fetchPresets,
   calculateRoute,
@@ -55,18 +65,20 @@ export const App: React.FC = () => {
   const [gybePenaltyMinutes, setGybePenaltyMinutes] = useState<number>(8.0);
 
   const [loading, setLoading] = useState<boolean>(false);
+  const [activeModel, setActiveModel] = useState<WeatherModelId>(DEFAULT_WEATHER_MODEL);
   const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
+  const [multiRouteResult, setMultiRouteResult] = useState<MultiRouteResult | null>(null);
   const [currentWaypointIndex, setCurrentWaypointIndex] = useState<number>(0);
 
   const [weatherGrid, setWeatherGrid] = useState<WeatherGridResponse | null>(null);
   const [landmaskPolygons, setLandmaskPolygons] = useState<LandmaskPolygon[]>([]);
 
-  // Layer Defaults: Only GFS Wind & Barbs selected; Isochrones and Landmass unselected
+  // Layer Defaults: Only Active Wind & Barbs selected; Isochrones and Landmass unselected
   const [showWindGrid, setShowWindGrid] = useState<boolean>(true);
   const [showIsochrones, setShowIsochrones] = useState<boolean>(false);
   const [showLandmask, setShowLandmask] = useState<boolean>(false);
 
-  // Weather grid cache by timestamp
+  // Weather grid cache by model and timestamp
   const weatherCacheRef = useRef<Map<string, WeatherGridResponse>>(new Map());
 
   // Initial presets load + merge stored custom boats
@@ -100,12 +112,12 @@ export const App: React.FC = () => {
       ? routeResult.waypoints[currentWaypointIndex].time
       : departureTime;
 
-  // Load weather grid dynamically for the active timestamp
+  // Load weather grid dynamically for the active model and timestamp
   const loadWeatherForTime = useCallback(
-    async (timeStr: string) => {
+    async (timeStr: string, modelId: string = activeModel) => {
       if (!showWindGrid) return;
 
-      const cacheKey = `${startPoint.lat.toFixed(1)}_${startPoint.lon.toFixed(1)}_${destPoint.lat.toFixed(1)}_${destPoint.lon.toFixed(1)}_${timeStr}`;
+      const cacheKey = `${modelId}_${startPoint.lat.toFixed(1)}_${startPoint.lon.toFixed(1)}_${destPoint.lat.toFixed(1)}_${destPoint.lon.toFixed(1)}_${timeStr}`;
       if (weatherCacheRef.current.has(cacheKey)) {
         setWeatherGrid(weatherCacheRef.current.get(cacheKey)!);
         return;
@@ -123,6 +135,7 @@ export const App: React.FC = () => {
         const maxLon = Math.max(startPoint.lon, destPoint.lon) + 5;
 
         const grid = await fetchWeatherGrid({
+          model: modelId,
           minLat,
           maxLat,
           minLon,
@@ -136,17 +149,18 @@ export const App: React.FC = () => {
         setWeatherGrid(grid);
       } catch (err) {
         console.warn('Weather grid load error:', err);
+        setWeatherGrid(null);
       }
     },
-    [startPoint, destPoint, showWindGrid]
+    [startPoint, destPoint, showWindGrid, activeModel]
   );
 
-  // Trigger weather reload whenever activeTime or start/dest points change
+  // Trigger weather reload whenever activeTime, activeModel, or start/dest points change
   useEffect(() => {
-    loadWeatherForTime(activeTime);
-  }, [activeTime, loadWeatherForTime]);
+    loadWeatherForTime(activeTime, activeModel);
+  }, [activeTime, activeModel, loadWeatherForTime]);
 
-  // Snapshot of parameters used when the current routeResult was calculated
+  // Snapshot of parameters used when current routes were calculated
   const [solvedParams, setSolvedParams] = useState<{
     start: Point;
     dest: Point;
@@ -166,7 +180,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Route is considered outdated if departure time, yacht model, tack/gybe penalties, or coordinates changed
   const isRouteOutdated = Boolean(
     routeResult &&
     solvedParams &&
@@ -183,7 +196,7 @@ export const App: React.FC = () => {
     )
   );
 
-  // Handle Route Calculation
+  // Handle Multi-Model Route Calculation
   const handleCalculateRoute = async () => {
     setLoading(true);
     weatherCacheRef.current.clear();
@@ -194,6 +207,7 @@ export const App: React.FC = () => {
         dest: destPoint,
         startTime: departureTime,
         boatPreset: selectedPresetId,
+        model: 'all',
         timeStepHours,
         tackPenaltyMinutes,
         gybePenaltyMinutes,
@@ -207,7 +221,17 @@ export const App: React.FC = () => {
             }
           : undefined,
       });
-      setRouteResult(result);
+
+      if (result.routes && Object.keys(result.routes).length > 0) {
+        setMultiRouteResult(result.routes);
+        const resolvedActive = result.routes[activeModel] ? activeModel : result.active_model || Object.keys(result.routes)[0];
+        setActiveModel(resolvedActive);
+        setRouteResult(result.routes[resolvedActive]);
+      } else {
+        setMultiRouteResult({ [activeModel]: result });
+        setRouteResult(result);
+      }
+
       setSolvedParams({
         start: { ...startPoint },
         dest: { ...destPoint },
@@ -226,6 +250,15 @@ export const App: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // Switch Active Model Handler
+  const handleActiveModelChange = useCallback((newModelId: WeatherModelId) => {
+    setActiveModel(newModelId);
+    if (multiRouteResult && multiRouteResult[newModelId]) {
+      setRouteResult(multiRouteResult[newModelId]);
+      setCurrentWaypointIndex(0);
+    }
+  }, [multiRouteResult]);
 
   const handleAddCustomBoat = useCallback((newPreset: BoatPreset) => {
     saveCustomBoatToStorage(newPreset);
@@ -278,7 +311,6 @@ export const App: React.FC = () => {
                 <span className="hamburger-dropdown-title">Menu</span>
               </div>
 
-              {/* Exactly 2 Menu Items as requested: Weather Routing & Settings */}
               <div className="hamburger-menu-list">
                 <button
                   type="button"
@@ -318,7 +350,7 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {/* 2. Top Tabs (Map View vs Passage Statistics) - ONLY rendered in Routing View */}
+        {/* 2. Top Tabs (Map View vs Passage Statistics) */}
         {activeView === 'routing' && (
           <div className="app-tabs-bar">
             <button
@@ -340,7 +372,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* 3. Current Simulation Time Chip */}
+        {/* 3. Current Simulation Time Chip with Active Model indicator */}
         {activeView === 'routing' && activeTime && (
           <div className="simulation-time-chip" title="Current Simulation Time (UTC)">
             <Clock size={14} className="sim-clock-icon" />
@@ -359,6 +391,18 @@ export const App: React.FC = () => {
                 }
               })()}
             </span>
+            {routeResult && (
+              <span
+                className="sim-model-tag"
+                style={{
+                  backgroundColor: WEATHER_MODELS[activeModel]?.badgeBg || 'rgba(56, 189, 248, 0.15)',
+                  color: WEATHER_MODELS[activeModel]?.lightColor || '#38bdf8',
+                  border: `1px solid ${WEATHER_MODELS[activeModel]?.badgeBorder || 'rgba(56, 189, 248, 0.3)'}`,
+                }}
+              >
+                {WEATHER_MODELS[activeModel]?.shortName || activeModel}
+              </span>
+            )}
             {routeResult && routeResult.waypoints[currentWaypointIndex] && (
               <span className="sim-elapsed-badge">
                 +{Math.round(
@@ -379,9 +423,7 @@ export const App: React.FC = () => {
       {/* Main View Area */}
       <main className="main-view full-screen-view">
         
-        {/* =========================================================================
-            1. Weather Routing View (Map View & Passage Statistics)
-            ========================================================================= */}
+        {/* 1. Weather Routing View (Map View & Passage Statistics) */}
         {activeView === 'routing' && (
           <>
             {routingSubTab === 'map' ? (
@@ -394,6 +436,9 @@ export const App: React.FC = () => {
                   placementMode={placementMode}
                   onPlacementModeChange={setPlacementMode}
                   routeResult={routeResult}
+                  multiRouteResult={multiRouteResult}
+                  activeModel={activeModel}
+                  onSelectModel={handleActiveModelChange}
                   currentWaypointIndex={currentWaypointIndex}
                   weatherGrid={weatherGrid}
                   landmaskPolygons={landmaskPolygons}
@@ -411,6 +456,7 @@ export const App: React.FC = () => {
                     onToggleWindGrid={() => setShowWindGrid(!showWindGrid)}
                     showLandmask={showLandmask}
                     onToggleLandmask={() => setShowLandmask(!showLandmask)}
+                    activeModel={activeModel}
                     activeTime={activeTime}
                   />
 
@@ -428,6 +474,9 @@ export const App: React.FC = () => {
                 {/* Bottom Unified Scrubber & Departure / Calculate Dock */}
                 <TimelineScrubber
                   routeResult={routeResult}
+                  multiRouteResult={multiRouteResult}
+                  activeModel={activeModel}
+                  onActiveModelChange={handleActiveModelChange}
                   currentIndex={currentWaypointIndex}
                   onIndexChange={setCurrentWaypointIndex}
                   departureTime={departureTime}
@@ -443,12 +492,17 @@ export const App: React.FC = () => {
             ) : (
               <div className="passage-stats-page-container">
                 {routeResult ? (
-                  <PassageStatistics routeResult={routeResult} />
+                  <PassageStatistics
+                    routeResult={routeResult}
+                    multiRouteResult={multiRouteResult}
+                    activeModel={activeModel}
+                    onSelectModel={handleActiveModelChange}
+                  />
                 ) : (
                   <div className="stats-empty-state">
                     <BarChart3 size={48} color="#38bdf8" />
                     <h2>No Route Computed Yet</h2>
-                    <p>Calculate an optimal route on the Map View to inspect performance plots and passage telemetry.</p>
+                    <p>Calculate an optimal route on the Map View to inspect multi-model performance plots and passage telemetry.</p>
                     <button
                       type="button"
                       className="btn-primary"
@@ -464,9 +518,7 @@ export const App: React.FC = () => {
           </>
         )}
 
-        {/* =========================================================================
-            2. Settings View (Boat Configuration, Maneuver Penalties & VPP Launcher)
-            ========================================================================= */}
+        {/* 2. Settings View */}
         {activeView === 'settings' && (
           <SettingsView
             presets={presets}
@@ -487,9 +539,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* =========================================================================
-            3. VPP Dedicated Page (Reached via Settings)
-            ========================================================================= */}
+        {/* 3. VPP Dedicated Page */}
         {activeView === 'vpp' && (
           <div className="vpp-page-wrapper">
             <div className="vpp-page-header">
