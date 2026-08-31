@@ -294,88 +294,92 @@ export const App: React.FC = () => {
       {/* Top Floating Navigation Cluster */}
       <div className="top-navigation-cluster">
         
-        {/* 1. Standalone Hamburger Button & 2-Item Dropdown Menu */}
-        <div className="hamburger-container">
-          <button
-            type="button"
-            className={`standalone-hamburger-btn ${isMenuOpen ? 'active' : ''}`}
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            title="Application Menu"
-          >
-            {isMenuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
+        <div className="top-nav-primary-row">
+          {/* 1. Standalone Hamburger Button & 2-Item Dropdown Menu */}
+          <div className="hamburger-container">
+            <button
+              type="button"
+              className={`standalone-hamburger-btn ${isMenuOpen ? 'active' : ''}`}
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              title="Application Menu"
+            >
+              {isMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
 
-          {isMenuOpen && (
-            <div className="hamburger-dropdown">
-              <div className="hamburger-dropdown-header">
-                <span className="hamburger-dropdown-title">Menu</span>
+            {isMenuOpen && (
+              <div className="hamburger-dropdown">
+                <div className="hamburger-dropdown-header">
+                  <span className="hamburger-dropdown-title">Menu</span>
+                </div>
+
+                <div className="hamburger-menu-list">
+                  <button
+                    type="button"
+                    className={`hamburger-item ${activeView === 'routing' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActiveView('routing');
+                      setIsMenuOpen(false);
+                    }}
+                  >
+                    <div className="hamburger-item-icon text-sky">
+                      <Compass size={17} />
+                    </div>
+                    <div className="hamburger-item-text">
+                      <span className="hamburger-item-name">Weather Routing</span>
+                      <span className="hamburger-item-sub">Interactive map &amp; passage statistics</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`hamburger-item ${activeView === 'settings' || activeView === 'vpp' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActiveView('settings');
+                      setIsMenuOpen(false);
+                    }}
+                  >
+                    <div className="hamburger-item-icon text-emerald">
+                      <Sliders size={17} />
+                    </div>
+                    <div className="hamburger-item-text">
+                      <span className="hamburger-item-name">Settings</span>
+                      <span className="hamburger-item-sub">Boat configuration, penalties &amp; VPP</span>
+                    </div>
+                  </button>
+                </div>
               </div>
+            )}
+          </div>
 
-              <div className="hamburger-menu-list">
-                <button
-                  type="button"
-                  className={`hamburger-item ${activeView === 'routing' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveView('routing');
-                    setIsMenuOpen(false);
-                  }}
-                >
-                  <div className="hamburger-item-icon text-sky">
-                    <Compass size={17} />
-                  </div>
-                  <div className="hamburger-item-text">
-                    <span className="hamburger-item-name">Weather Routing</span>
-                    <span className="hamburger-item-sub">Interactive map &amp; passage statistics</span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  className={`hamburger-item ${activeView === 'settings' || activeView === 'vpp' ? 'active' : ''}`}
-                  onClick={() => {
-                    setActiveView('settings');
-                    setIsMenuOpen(false);
-                  }}
-                >
-                  <div className="hamburger-item-icon text-emerald">
-                    <Sliders size={17} />
-                  </div>
-                  <div className="hamburger-item-text">
-                    <span className="hamburger-item-name">Settings</span>
-                    <span className="hamburger-item-sub">Boat configuration, penalties &amp; VPP</span>
-                  </div>
-                </button>
-              </div>
+          {/* 2. Top Tabs (Map View vs Passage Statistics) */}
+          {activeView === 'routing' && (
+            <div className="app-tabs-bar">
+              <button
+                type="button"
+                className={`tab-nav-btn ${routingSubTab === 'map' ? 'active' : ''}`}
+                onClick={() => setRoutingSubTab('map')}
+              >
+                <Compass size={15} />
+                <span className="tab-label-full">Map View</span>
+                <span className="tab-label-short">Map</span>
+              </button>
+              <button
+                type="button"
+                className={`tab-nav-btn ${routingSubTab === 'stats' ? 'active' : ''}`}
+                onClick={() => setRoutingSubTab('stats')}
+              >
+                <BarChart3 size={15} />
+                <span className="tab-label-full">Passage Statistics</span>
+                <span className="tab-label-short">Stats</span>
+              </button>
             </div>
           )}
         </div>
 
-        {/* 2. Top Tabs (Map View vs Passage Statistics) */}
-        {activeView === 'routing' && (
-          <div className="app-tabs-bar">
-            <button
-              type="button"
-              className={`tab-nav-btn ${routingSubTab === 'map' ? 'active' : ''}`}
-              onClick={() => setRoutingSubTab('map')}
-            >
-              <Compass size={16} />
-              <span>Map View</span>
-            </button>
-            <button
-              type="button"
-              className={`tab-nav-btn ${routingSubTab === 'stats' ? 'active' : ''}`}
-              onClick={() => setRoutingSubTab('stats')}
-            >
-              <BarChart3 size={16} />
-              <span>Passage Statistics</span>
-            </button>
-          </div>
-        )}
-
         {/* 3. Current Simulation Time Chip with Active Model indicator */}
         {activeView === 'routing' && activeTime && (
           <div className="simulation-time-chip" title="Current Simulation Time (UTC)">
-            <Clock size={14} className="sim-clock-icon" />
+            <Clock size={13} className="sim-clock-icon" />
             <span className="sim-time-text">
               {(() => {
                 try {

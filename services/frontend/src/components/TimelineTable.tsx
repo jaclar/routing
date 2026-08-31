@@ -78,22 +78,8 @@ export function getWindColor(tws: number): string {
   }
 }
 
-/**
- * Returns point of sail color matching Passage Statistics:
- * - Upwind (< 60°): Sky Cyan (#38bdf8)
- * - Reaching (60° - 120°): Emerald Green (#10b981)
- * - Downwind (>= 120°): Purple (#a855f7)
- */
-export function getPointOfSailColor(twaDeg: number): string {
-  const twa = Math.abs(twaDeg);
-  if (twa < 60.0) {
-    return '#38bdf8'; // Upwind
-  } else if (twa < 120.0) {
-    return '#10b981'; // Reaching
-  } else {
-    return '#a855f7'; // Downwind
-  }
-}
+import { getPointOfSailColor } from '../config/pointOfSail';
+export { getPointOfSailColor };
 
 /**
  * Maps wave height and period to color representing sea state intensity / steepness:

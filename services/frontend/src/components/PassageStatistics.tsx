@@ -28,6 +28,11 @@ import {
   Waves,
 } from 'lucide-react';
 import { getWindColor, getWaveIntensityColor } from './TimelineTable';
+import {
+  getPointOfSail,
+  getPointOfSailRangeLabel,
+} from '../config/pointOfSail';
+import { WindRose } from './WindRose';
 
 ChartJS.register(
   CategoryScale,
@@ -114,14 +119,15 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       const prevWp = i > 0 ? wps[i - 1] : wp;
       const stepDist = Math.max(0, wp.distance_nm - prevWp.distance_nm);
 
-      // Point of Sail by TWA:
-      // Upwind: TWA < 60° (Close-hauled / Beating)
-      // Reaching: 60° <= TWA < 120° (Close reach / Beam reach / Broad reach)
-      // Downwind: TWA >= 120° (Running / Deep downwind)
-      if (wp.twa_deg < 60.0) {
+      // Point of Sail by TWA using deploy-time configurable thresholds:
+      // Upwind: TWA < reachingStartDeg (default < 90°)
+      // Reaching: reachingStartDeg <= TWA < reachingStopDeg (default 90° <= TWA < 150°)
+      // Downwind: TWA >= reachingStopDeg (default >= 150°)
+      const pos = getPointOfSail(wp.twa_deg);
+      if (pos === 'upwind') {
         upwindCount++;
         upwindDist += stepDist;
-      } else if (wp.twa_deg < 120.0) {
+      } else if (pos === 'reaching') {
         reachingCount++;
         reachingDist += stepDist;
       } else {
@@ -837,30 +843,30 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                 </tr>
 
                 {/* 4. Points of Sail Breakdowns */}
-                <tr title={`Beating / Close-hauled (TWA < 60°) • ${stats.upwindDist.toFixed(1)} NM sailed`}>
+                <tr title={`Beating / Close-hauled (${getPointOfSailRangeLabel('upwind')} TWA) • ${stats.upwindDist.toFixed(1)} NM sailed`}>
                   <td className="row-category" rowSpan={3}>
                     <Compass size={16} /> Points of Sail
                   </td>
                   <td className="metric-label">
-                    <span className="pos-indicator pos-upwind"></span> Percentage Upwind
+                    <span className="pos-indicator pos-upwind"></span> Percentage Upwind ({getPointOfSailRangeLabel('upwind')})
                   </td>
                   <td className="metric-value font-mono text-cyan">
                     {stats.pctUpwind.toFixed(1)}%
                   </td>
                 </tr>
 
-                <tr title={`Beam & Broad Reach (60° ≤ TWA < 120°) • ${stats.reachingDist.toFixed(1)} NM sailed`}>
+                <tr title={`Reaching (${getPointOfSailRangeLabel('reaching')} TWA) • ${stats.reachingDist.toFixed(1)} NM sailed`}>
                   <td className="metric-label">
-                    <span className="pos-indicator pos-reaching"></span> Percentage Reaching
+                    <span className="pos-indicator pos-reaching"></span> Percentage Reaching ({getPointOfSailRangeLabel('reaching')})
                   </td>
                   <td className="metric-value font-mono text-emerald">
                     {stats.pctReaching.toFixed(1)}%
                   </td>
                 </tr>
 
-                <tr title={`Running (TWA ≥ 120°) • ${stats.downwindDist.toFixed(1)} NM sailed`}>
+                <tr title={`Running / Downwind (${getPointOfSailRangeLabel('downwind')} TWA) • ${stats.downwindDist.toFixed(1)} NM sailed`}>
                   <td className="metric-label">
-                    <span className="pos-indicator pos-downwind"></span> Percentage Downwind
+                    <span className="pos-indicator pos-downwind"></span> Percentage Downwind ({getPointOfSailRangeLabel('downwind')})
                   </td>
                   <td className="metric-value font-mono text-purple">
                     {stats.pctDownwind.toFixed(1)}%
@@ -973,17 +979,38 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
         <div className="pos-bar-header">
           <span>Point of Sail Distribution (% Time)</span>
           <div className="pos-legend">
-            <span className="legend-item"><span className="dot dot-cyan"></span> Upwind ({stats.pctUpwind.toFixed(1)}%)</span>
-            <span className="legend-item"><span className="dot dot-emerald"></span> Reaching ({stats.pctReaching.toFixed(1)}%)</span>
-            <span className="legend-item"><span className="dot dot-purple"></span> Downwind ({stats.pctDownwind.toFixed(1)}%)</span>
+            <span className="legend-item">
+              <span className="dot dot-cyan"></span> Upwind ({getPointOfSailRangeLabel('upwind')}) — {stats.pctUpwind.toFixed(1)}%
+            </span>
+            <span className="legend-item">
+              <span className="dot dot-emerald"></span> Reaching ({getPointOfSailRangeLabel('reaching')}) — {stats.pctReaching.toFixed(1)}%
+            </span>
+            <span className="legend-item">
+              <span className="dot dot-purple"></span> Downwind ({getPointOfSailRangeLabel('downwind')}) — {stats.pctDownwind.toFixed(1)}%
+            </span>
           </div>
         </div>
         <div className="pos-progress-track">
-          <div className="pos-seg pos-seg-upwind" style={{ width: `${stats.pctUpwind}%` }} title={`Upwind: ${stats.pctUpwind.toFixed(1)}%`} />
-          <div className="pos-seg pos-seg-reaching" style={{ width: `${stats.pctReaching}%` }} title={`Reaching: ${stats.pctReaching.toFixed(1)}%`} />
-          <div className="pos-seg pos-seg-downwind" style={{ width: `${stats.pctDownwind}%` }} title={`Downwind: ${stats.pctDownwind.toFixed(1)}%`} />
+          <div
+            className="pos-seg pos-seg-upwind"
+            style={{ width: `${stats.pctUpwind}%` }}
+            title={`Upwind (${getPointOfSailRangeLabel('upwind')}): ${stats.pctUpwind.toFixed(1)}% • ${stats.upwindDist.toFixed(1)} NM`}
+          />
+          <div
+            className="pos-seg pos-seg-reaching"
+            style={{ width: `${stats.pctReaching}%` }}
+            title={`Reaching (${getPointOfSailRangeLabel('reaching')}): ${stats.pctReaching.toFixed(1)}% • ${stats.reachingDist.toFixed(1)} NM`}
+          />
+          <div
+            className="pos-seg pos-seg-downwind"
+            style={{ width: `${stats.pctDownwind}%` }}
+            title={`Downwind (${getPointOfSailRangeLabel('downwind')}): ${stats.pctDownwind.toFixed(1)}% • ${stats.downwindDist.toFixed(1)} NM`}
+          />
         </div>
       </div>
+
+      {/* Wind Rose: Bucketed Direction & Angle Polar Distribution */}
+      <WindRose routeResult={routeResult} />
 
       {/* Time Plots Section */}
       <div className="stats-plots-section">

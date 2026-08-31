@@ -6,12 +6,12 @@ import {
   Pause,
   SkipBack,
   SkipForward,
-  Download,
   RotateCw,
   Calendar,
   X,
   ChevronDown,
   Check,
+  Share2,
 } from 'lucide-react';
 
 export type AnimationSpeed = 0.5 | 1 | 2;
@@ -167,7 +167,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     };
   }, [isPlaying, totalWaypoints, onIndexChange]);
 
-  const handleExportGPX = () => {
+  const handleExportOrShareGPX = async () => {
     if (!routeResult) return;
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="SailVPP-Routing" xmlns="http://www.topografix.com/GPX/1/1">
@@ -185,12 +185,35 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
       .join('\n    ')}
   </rte>
 </gpx>`;
+    const fileName = `route_${routeResult.boat_name.replace(/\s+/g, '_')}_${activeModel}.gpx`;
     const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+
+    // Web Share API (native sheet on iOS / Android)
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        const file = new File([blob], fileName, { type: 'application/gpx+xml' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: `${routeResult.boat_name} Route (${activeModel})`,
+            text: `Sailboat weather route for ${routeResult.boat_name} (${activeModel}, ${routeResult.total_duration_hours.toFixed(1)}h)`,
+            files: [file],
+          });
+          return;
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          return; // User cancelled share sheet
+        }
+      }
+    }
+
+    // Direct download fallback
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `route_${routeResult.boat_name.replace(/\s+/g, '_')}_${activeModel}.gpx`;
+    a.download = fileName;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const handleOpenDateModal = () => {
@@ -433,7 +456,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           </div>
         )}
 
-        {/* Action Buttons: Recalculate & GPX Export (Icons Only) */}
+        {/* Action Buttons: Recalculate & GPX Export / Share */}
         <div className="dock-actions-cluster">
           <button
             type="button"
@@ -441,6 +464,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
             onClick={handleOpenDateModal}
             disabled={loading}
             title={loading ? 'Recalculating routes...' : 'Change departure time & recalculate routes'}
+            aria-label="Recalculate route"
           >
             <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -448,10 +472,11 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           <button
             type="button"
             className="dock-gpx-btn"
-            onClick={handleExportGPX}
-            title="Download GPX route"
+            onClick={handleExportOrShareGPX}
+            title="Share or download GPX route"
+            aria-label="Share or download GPX route"
           >
-            <Download size={14} />
+            <Share2 size={14} />
           </button>
         </div>
       </div>
