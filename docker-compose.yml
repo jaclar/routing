@@ -42,7 +42,7 @@ services:
       - PORT=4081
       - DATA_DIR=/data/store
     volumes:
-      - meteo_data:/data/store
+      - /data/store:/data/store
     restart: unless-stopped
     networks:
       - routing-network
@@ -56,7 +56,7 @@ services:
     environment:
       - DATA_DIR=/data/store
     volumes:
-      - meteo_data:/data/store
+      - /data/store:/data/store
     restart: unless-stopped
     networks:
       - routing-network
@@ -99,5 +99,4 @@ volumes:
     name: sailboat_caddy_data
   caddy_config:
     name: sailboat_caddy_config
-  meteo_data:
-    name: sailboat_meteo_data
+
