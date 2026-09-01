@@ -51,11 +51,8 @@ func defaultICONEPSMembers() []int {
 }
 
 func defaultICONEPSSteps() []int {
-	steps := make([]int, 0, 45)
-	for h := 0; h <= 78; h += 3 {
-		steps = append(steps, h)
-	}
-	for h := 84; h <= 120; h += 6 {
+	steps := make([]int, 0, 25)
+	for h := 0; h <= 120; h += 6 {
 		steps = append(steps, h)
 	}
 	return steps
@@ -77,14 +74,20 @@ func (i *ICONEPSDriver) CheckLatestCycle(ctx context.Context) (*model.ModelCycle
 		dateStr := fmt.Sprintf("%04d%02d%02d", testCycle.Year(), testCycle.Month(), testCycle.Day())
 		hourStr := fmt.Sprintf("%02d", testCycle.Hour())
 
-		testURL := fmt.Sprintf("%s/%s/u_10m/icon-eps_global_icosahedral_single-level_%s%s_048_u_10m.grib2.bz2",
+		testURLA := fmt.Sprintf("%s/%s/u_10m/icon-eps_global_icosahedral_single-level_%s%s_048_u_10m.grib2.bz2",
 			i.baseURL, hourStr, dateStr, hourStr)
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, testURL, nil)
-		if err == nil {
-			resp, err := i.httpClient.Do(req)
-			if err == nil {
-				resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
+		testURLB := fmt.Sprintf("%s/%s/tot_prec/icon-eps_global_icosahedral_single-level_%s%s_048_tot_prec.grib2.bz2",
+			i.baseURL, hourStr, dateStr, hourStr)
+
+		reqA, errA := http.NewRequestWithContext(ctx, http.MethodHead, testURLA, nil)
+		reqB, errB := http.NewRequestWithContext(ctx, http.MethodHead, testURLB, nil)
+		if errA == nil && errB == nil {
+			respA, errA := i.httpClient.Do(reqA)
+			respB, errB := i.httpClient.Do(reqB)
+			if errA == nil && errB == nil {
+				respA.Body.Close()
+				respB.Body.Close()
+				if respA.StatusCode == http.StatusOK && respB.StatusCode == http.StatusOK {
 					return &model.ModelCycle{
 						ModelName:     i.ModelID(),
 						ReferenceTime: testCycle,
@@ -93,6 +96,13 @@ func (i *ICONEPSDriver) CheckLatestCycle(ctx context.Context) (*model.ModelCycle
 						Members:       members,
 						IsEnsemble:    true,
 					}, nil
+				}
+			} else {
+				if respA != nil {
+					respA.Body.Close()
+				}
+				if respB != nil {
+					respB.Body.Close()
 				}
 			}
 		}

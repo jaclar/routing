@@ -128,22 +128,23 @@ func TestGEFSDriverDiscovery(t *testing.T) {
 		Members:       defaultGEFSMembers(), // 31 members
 		IsEnsemble:    true,
 	}
-	vars := []string{model.VarWindU10m, model.VarWindV10m}
+	vars := []string{model.VarWindU10m, model.VarWindV10m, model.VarWindGust10m}
 
 	tasks, err := gefs.DiscoverSlices(cycle, vars)
 	if err != nil {
 		t.Fatalf("GEFS DiscoverSlices failed: %v", err)
 	}
 
-	// 3 steps * 2 variables * 31 members = 186 tasks
-	expected := 3 * 2 * 31
+	// 3 steps * 3 variables * 31 members = 279 tasks
+	expected := 3 * 3 * 31
 	if len(tasks) != expected {
 		t.Errorf("expected %d GEFS tasks, got %d", expected, len(tasks))
 	}
 
-	// Verify control member 0 and perturbed member 1 URLs
+	// Verify control member 0 and perturbed member 1 URLs, and verify gust uses pgrb2bp5
 	hasCtl := false
 	hasPert := false
+	hasGustB := false
 	for _, tsk := range tasks {
 		if tsk.Member == 0 && strings.Contains(tsk.SourceURL, "gec00") {
 			hasCtl = true
@@ -151,9 +152,12 @@ func TestGEFSDriverDiscovery(t *testing.T) {
 		if tsk.Member == 1 && strings.Contains(tsk.SourceURL, "gep01") {
 			hasPert = true
 		}
+		if tsk.Variable == model.VarWindGust10m && strings.Contains(tsk.SourceURL, "pgrb2bp5") && strings.Contains(tsk.SourceURL, "pgrb2b") {
+			hasGustB = true
+		}
 	}
-	if !hasCtl || !hasPert {
-		t.Errorf("expected tasks to include gec00 and gep01 URLs (ctl=%v, pert=%v)", hasCtl, hasPert)
+	if !hasCtl || !hasPert || !hasGustB {
+		t.Errorf("expected tasks to include gec00, gep01, and gust pgrb2b URLs (ctl=%v, pert=%v, gustB=%v)", hasCtl, hasPert, hasGustB)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,7 +65,7 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 					return
 				}
 
-				// Retry up to 8 times with exponential backoff and randomized jitter
+				// Retry transient errors up to 8 times with exponential backoff and randomized jitter
 				const maxAttempts = 8
 				var slice *model.RawGridSlice
 				var fetchErr error
@@ -76,7 +77,7 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 						}
 						jitterMs := int(time.Now().UnixNano() % 500)
 						sleepDuration := time.Duration(backoffMs+jitterMs) * time.Millisecond
-						log.Printf("[Ingest]%s Worker %d rate limit/retry (%d/%d) for %s step %d in %v: %v",
+						log.Printf("[Ingest]%s Worker %d transient retry (%d/%d) for %s step %d in %v: %v",
 							tag, workerID, attempt, maxAttempts, task.Variable, task.StepHours, sleepDuration.Round(time.Millisecond), fetchErr)
 						select {
 						case <-ctx.Done():
@@ -87,6 +88,13 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 
 					slice, fetchErr = drv.IngestSlice(ctx, task)
 					if fetchErr == nil {
+						break
+					}
+
+					// If file is not found (HTTP 404, NoSuchKey, or missing index pattern), abort immediately without retrying
+					if isNotFoundError(fetchErr) {
+						log.Printf("[Ingest]%s Worker %d: %s step %d not yet available upstream: %v",
+							tag, workerID, task.Variable, task.StepHours, fetchErr)
 						break
 					}
 				}
@@ -146,3 +154,14 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 	log.Printf("[Ingest]%s Successfully completed cycle ingestion", tag)
 	return nil
 }
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "404") ||
+		strings.Contains(s, "not found") ||
+		strings.Contains(s, "nosuchkey")
+}
+

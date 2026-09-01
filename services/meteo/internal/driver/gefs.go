@@ -90,14 +90,19 @@ func (g *GEFSDriver) CheckLatestCycle(ctx context.Context) (*model.ModelCycle, e
 		dateStr := fmt.Sprintf("%04d%02d%02d", testCycle.Year(), testCycle.Month(), testCycle.Day())
 		hourStr := fmt.Sprintf("%02d", testCycle.Hour())
 
-		// Test existence of perturbed member 30 index file to ensure NOAA has finished uploading all members
-		idxURL := fmt.Sprintf("%s/gefs.%s/%s/atmos/pgrb2ap5/gep30.t%sz.pgrb2a.0p50.f%03d.idx", g.baseURL, dateStr, hourStr, hourStr, testStep)
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, idxURL, nil)
-		if err == nil {
-			resp, err := g.httpClient.Do(req)
-			if err == nil {
-				resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
+		// Test existence of perturbed member 30 index file in both pgrb2a and pgrb2b to ensure NOAA has finished uploading all members
+		idxURLA := fmt.Sprintf("%s/gefs.%s/%s/atmos/pgrb2ap5/gep30.t%sz.pgrb2a.0p50.f%03d.idx", g.baseURL, dateStr, hourStr, hourStr, testStep)
+		idxURLB := fmt.Sprintf("%s/gefs.%s/%s/atmos/pgrb2bp5/gep30.t%sz.pgrb2b.0p50.f%03d.idx", g.baseURL, dateStr, hourStr, hourStr, testStep)
+		
+		reqA, errA := http.NewRequestWithContext(ctx, http.MethodHead, idxURLA, nil)
+		reqB, errB := http.NewRequestWithContext(ctx, http.MethodHead, idxURLB, nil)
+		if errA == nil && errB == nil {
+			respA, errA := g.httpClient.Do(reqA)
+			respB, errB := g.httpClient.Do(reqB)
+			if errA == nil && errB == nil {
+				respA.Body.Close()
+				respB.Body.Close()
+				if respA.StatusCode == http.StatusOK && respB.StatusCode == http.StatusOK {
 					return &model.ModelCycle{
 						ModelName:     g.ModelID(),
 						ReferenceTime: testCycle,
@@ -106,6 +111,13 @@ func (g *GEFSDriver) CheckLatestCycle(ctx context.Context) (*model.ModelCycle, e
 						Members:       members,
 						IsEnsemble:    true,
 					}, nil
+				}
+			} else {
+				if respA != nil {
+					respA.Body.Close()
+				}
+				if respB != nil {
+					respB.Body.Close()
 				}
 			}
 		}
@@ -144,11 +156,18 @@ func (g *GEFSDriver) DiscoverSlices(cycle *model.ModelCycle, variables []string)
 				memberPrefix = fmt.Sprintf("gep%02d", m)
 			}
 
-			gribURL := fmt.Sprintf("%s/gefs.%s/%s/atmos/pgrb2ap5/%s.t%sz.pgrb2a.0p50.f%s",
-				g.baseURL, dateStr, hourStr, memberPrefix, hourStr, stepStr)
-			idxURL := fmt.Sprintf("%s.idx", gribURL)
-
 			for _, v := range variables {
+				subDir := "pgrb2ap5"
+				fileType := "pgrb2a"
+				if v == model.VarWindGust10m {
+					subDir = "pgrb2bp5"
+					fileType = "pgrb2b"
+				}
+
+				gribURL := fmt.Sprintf("%s/gefs.%s/%s/atmos/%s/%s.t%sz.%s.0p50.f%s",
+					g.baseURL, dateStr, hourStr, subDir, memberPrefix, hourStr, fileType, stepStr)
+				idxURL := fmt.Sprintf("%s.idx", gribURL)
+
 				tasks = append(tasks, model.FetchTask{
 					ModelName: cycle.ModelName,
 					Cycle:     cycle.ReferenceTime,
