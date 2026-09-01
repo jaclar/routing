@@ -192,3 +192,35 @@ func InterpolateTimeSeries(store *zarr.Store, si *SpatialInterpolator, variable 
 
 	return res, nil
 }
+
+// InterpolateMemberTimeSeries performs spatial bilinear interpolation across all forecast steps for a specific ensemble member.
+func InterpolateMemberTimeSeries(store *zarr.Store, si *SpatialInterpolator, variable string, member int, lat, lon float64) ([]float64, error) {
+	i0, i1, j0, j1, u, v := si.GridCoords(lat, lon)
+
+	ts00, err := store.GetMemberPointTimeSeries(variable, member, i0, j0)
+	if err != nil {
+		return nil, err
+	}
+	ts10, err := store.GetMemberPointTimeSeries(variable, member, i1, j0)
+	if err != nil {
+		return nil, err
+	}
+	ts01, err := store.GetMemberPointTimeSeries(variable, member, i0, j1)
+	if err != nil {
+		return nil, err
+	}
+	ts11, err := store.GetMemberPointTimeSeries(variable, member, i1, j1)
+	if err != nil {
+		return nil, err
+	}
+
+	nSteps := store.NSteps
+	res := make([]float64, nSteps)
+
+	for stepIdx := 0; stepIdx < nSteps; stepIdx++ {
+		res[stepIdx] = BilinearInterp(ts00[stepIdx], ts10[stepIdx], ts01[stepIdx], ts11[stepIdx], u, v)
+	}
+
+	return res, nil
+}
+

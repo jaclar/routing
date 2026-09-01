@@ -15,6 +15,9 @@ const (
 	ModelGFS025     = "gfs_0p25"
 	ModelIFS025     = "ifs_0p25"
 	ModelICONGlobal = "icon_global"
+	ModelGEFS050    = "gefs_0p50"
+	ModelIFSEns025  = "ifs_ens_0p25"
+	ModelICONEPS    = "icon_eps_global"
 	ModelAll        = "all"
 )
 
@@ -27,6 +30,12 @@ func NormalizeModelID(id string) string {
 		return ModelIFS025
 	case "icon", "dwd_icon", "icon_seamless", "icon_global":
 		return ModelICONGlobal
+	case "gefs", "gefs_0p50", "noaa_gefs", "gefs050", "gefs_seamless":
+		return ModelGEFS050
+	case "ifs_ens", "ifs_ens_0p25", "ecmwf_ens", "ecmwf_ifs_ens":
+		return ModelIFSEns025
+	case "icon_eps", "icon_eps_global", "dwd_icon_eps":
+		return ModelICONEPS
 	case "", "all":
 		return ModelAll
 	default:
@@ -36,7 +45,7 @@ func NormalizeModelID(id string) string {
 
 // AvailableModelIDs returns the list of primary canonical models.
 func AvailableModelIDs() []string {
-	return []string{ModelGFS025, ModelIFS025, ModelICONGlobal}
+	return []string{ModelGFS025, ModelIFS025, ModelICONGlobal, ModelGEFS050, ModelIFSEns025, ModelICONEPS}
 }
 
 // WindCondition represents wind speed and meteorological direction at a specific location and time.

@@ -30,14 +30,26 @@ const (
 	OMWaveHeight       = "wave_height"
 	OMWaveDirection    = "wave_direction"
 	OMWavePeriod       = "wave_period"
+
+	// Ensemble statistical variables
+	OMWindSpeed10mP10 = "wind_speed_10m_p10"
+	OMWindSpeed10mP50 = "wind_speed_10m_p50"
+	OMWindSpeed10mP90 = "wind_speed_10m_p90"
+	OMWindSpeed10mStd = "wind_speed_10m_std"
+	OMWindGusts10mP90 = "wind_gusts_10m_p90"
+	OMProbWindGE25kt  = "prob_wind_ge_25kt"
+	OMProbWindGE34kt  = "prob_wind_ge_34kt"
 )
 
 // Supported Model IDs
 const (
-	ModelGFS025    = "gfs_0p25"
-	ModelIFS025    = "ifs_0p25"
-	ModelAIFS025   = "aifs_0p25"
-	ModelICON025   = "icon_global"
+	ModelGFS025      = "gfs_0p25"
+	ModelIFS025      = "ifs_0p25"
+	ModelAIFS025     = "aifs_0p25"
+	ModelICON025     = "icon_global"
+	ModelGEFS050     = "gefs_0p50"
+	ModelIFSEns025   = "ifs_ens_0p25"
+	ModelICONEPS025  = "icon_eps_global"
 )
 
 // ModelCycle represents a specific forecast reference cycle run (e.g. 2026-08-30 06:00 UTC).
@@ -46,6 +58,8 @@ type ModelCycle struct {
 	ReferenceTime time.Time `json:"reference_time"`
 	ResolutionDeg float64   `json:"resolution_deg"` // e.g. 0.25
 	ForecastSteps []int     `json:"forecast_steps"` // e.g. [0, 1, 2, ... 240]
+	Members       []int     `json:"members,omitempty"` // Ensemble member IDs (e.g. [0..30] or [1..50])
+	IsEnsemble    bool      `json:"is_ensemble,omitempty"`
 }
 
 // FetchTask describes a slice of data to be downloaded and ingested.
@@ -54,6 +68,8 @@ type FetchTask struct {
 	Cycle       time.Time
 	StepHours   int
 	Variable    string
+	Member      int       // Ensemble member ID (0 for control/deterministic, 1..N for perturbed, -1 if bundled)
+	Members     []int     // Set if task fetches multiple members simultaneously
 	SourceURL   string
 	ByteStart   int64
 	ByteEnd     int64
@@ -65,17 +81,20 @@ type RawGridSlice struct {
 	Variable     string
 	ValidTime    time.Time
 	StepHours    int
+	Member       int       // Specific member index (if single member)
+	NumMembers   int       // Total members present or expected
 	NLats        int
 	NLons        int
-	LatStart     float64 // e.g. 90.0
-	LatEnd       float64 // e.g. -90.0
-	LatStep      float64 // e.g. 0.25
-	LonStart     float64 // e.g. 0.0 or -180.0
-	LonEnd       float64 // e.g. 359.75 or 179.75
-	LonStep      float64 // e.g. 0.25
+	LatStart     float64   // e.g. 90.0
+	LatEnd       float64   // e.g. -90.0
+	LatStep      float64   // e.g. 0.25
+	LonStart     float64   // e.g. 0.0 or -180.0
+	LonEnd       float64   // e.g. 359.75 or 179.75
+	LonStep      float64   // e.g. 0.25
 	Lats         []float32 // Optional explicit coordinates
 	Lons         []float32
-	Data         []float32 // Row-major flattened: NLats * NLons
+	Data         []float32 // Row-major flattened: NLats * NLons (for single member)
+	MembersData  [][]float32 // Optional: all members data [memberIdx][NLats * NLons]
 }
 
 // Unit Conversion Helpers

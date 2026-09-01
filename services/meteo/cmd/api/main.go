@@ -65,7 +65,7 @@ func main() {
 		handleForecast(w, r, engine, "")
 	})
 
-	// Model-specific alias endpoints
+	// Model-specific deterministic endpoints
 	r.Get("/v1/gfs", func(w http.ResponseWriter, r *http.Request) {
 		handleForecast(w, r, engine, model.ModelGFS025)
 	})
@@ -76,6 +76,27 @@ func main() {
 
 	r.Get("/v1/dwd-icon", func(w http.ResponseWriter, r *http.Request) {
 		handleForecast(w, r, engine, model.ModelICON025)
+	})
+
+	// Model-specific ensemble endpoints
+	r.Get("/v1/gefs", func(w http.ResponseWriter, r *http.Request) {
+		handleForecast(w, r, engine, model.ModelGEFS050)
+	})
+
+	r.Get("/v1/ifs-ens", func(w http.ResponseWriter, r *http.Request) {
+		handleForecast(w, r, engine, model.ModelIFSEns025)
+	})
+
+	r.Get("/v1/ecmwf-ens", func(w http.ResponseWriter, r *http.Request) {
+		handleForecast(w, r, engine, model.ModelIFSEns025)
+	})
+
+	r.Get("/v1/icon-eps", func(w http.ResponseWriter, r *http.Request) {
+		handleForecast(w, r, engine, model.ModelICONEPS025)
+	})
+
+	r.Get("/v1/dwd-icon-eps", func(w http.ResponseWriter, r *http.Request) {
+		handleForecast(w, r, engine, model.ModelICONEPS025)
 	})
 
 	// High-speed 2D bounding-box / corridor endpoint for routing engines
@@ -139,6 +160,14 @@ func handleGrid(w http.ResponseWriter, r *http.Request, engine *query.Engine) {
 	latStep, _ := strconv.ParseFloat(q.Get("lat_step"), 64)
 	lonStep, _ := strconv.ParseFloat(q.Get("lon_step"), 64)
 	stepHour, _ := strconv.Atoi(q.Get("step"))
+	stat := q.Get("stat")
+	member := -1
+	if mStr := q.Get("member"); mStr != "" {
+		if val, err := strconv.Atoi(mStr); err == nil {
+			member = val
+		}
+	}
+
 	modelID := q.Get("model")
 	if modelID == "" {
 		modelID = model.ModelGFS025
@@ -150,7 +179,7 @@ func handleGrid(w http.ResponseWriter, r *http.Request, engine *query.Engine) {
 		minLon, maxLon = -70.0, -55.0
 	}
 
-	res, err := engine.ExecuteGrid(r.Context(), modelID, minLat, maxLat, minLon, maxLon, latStep, lonStep, stepHour)
+	res, err := engine.ExecuteGridWithStat(r.Context(), modelID, stat, member, minLat, maxLat, minLon, maxLon, latStep, lonStep, stepHour)
 	if err != nil {
 		log.Printf("[ERROR] Model %s grid query failed: %v", modelID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -165,3 +194,4 @@ func handleGrid(w http.ResponseWriter, r *http.Request, engine *query.Engine) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)
 }
+

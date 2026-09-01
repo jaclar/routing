@@ -30,6 +30,12 @@ type Message struct {
 	SurfaceType   uint8
 	SurfaceValue  float64
 
+	// Product Definition
+	PDT                  uint16 // Product Definition Template (0=deterministic, 1=individual ensemble, etc.)
+	EnsembleType         uint8  // Type of ensemble forecast (0=unperturbed ctl, 1=perturbed, 192=DWD pert)
+	PerturbationNumber   uint8  // Perturbation number / member ID
+	NumEnsembleForecasts uint8  // Total ensemble forecasts in run
+
 	// Grid Definition
 	GridTemplate uint16
 	Ni           int
@@ -40,8 +46,9 @@ type Message struct {
 	ScanningMode uint8
 
 	// Data
-	DataPoints int
-	Values     []float32
+	DataPoints  int
+	Values      []float32
+	TotalLength uint64
 }
 
 type ccsdsMeta struct {
@@ -192,6 +199,7 @@ func Parse(data []byte) (*Message, error) {
 		case 4: // Product Definition Section
 			if len(secData) >= 9 {
 				pdt := binary.BigEndian.Uint16(secData[7:9])
+				msg.PDT = pdt
 				if len(secData) >= 29 {
 					paramCat = secData[9]
 					paramNum = secData[10]
@@ -212,7 +220,13 @@ func Parse(data []byte) (*Message, error) {
 					scaleVal := binary.BigEndian.Uint32(secData[24:28])
 					surfVal = float64(scaleVal) * math.Pow10(-int(scaleFactor))
 				}
-				_ = pdt
+
+				// PDT 1 or 11: Individual ensemble forecast
+				if (pdt == 1 || pdt == 11) && len(secData) >= 37 {
+					msg.EnsembleType = secData[34]
+					msg.PerturbationNumber = secData[35]
+					msg.NumEnsembleForecasts = secData[36]
+				}
 			}
 
 		case 5: // Data Representation Section
@@ -344,6 +358,7 @@ func Parse(data []byte) (*Message, error) {
 	msg.Dj = dj
 	msg.ScanningMode = scanMode
 	msg.DataPoints = len(msg.Values)
+	msg.TotalLength = totalLen
 
 	return msg, nil
 }
@@ -718,17 +733,68 @@ func decodeCCSDSPacking(payload []byte, numPoints int, refVal float32, binScale,
 // ToRawGridSlice converts a decoded GRIB2 message to a canonical RawGridSlice.
 func (m *Message) ToRawGridSlice(canonicalVar string) *model.RawGridSlice {
 	return &model.RawGridSlice{
-		Variable:  canonicalVar,
-		ValidTime: m.ValidTime,
-		StepHours: m.StepHours,
-		NLats:     m.Nj,
-		NLons:     m.Ni,
-		LatStart:  m.La1,
-		LatEnd:    m.La2,
-		LatStep:   m.Dj,
-		LonStart:  m.Lo1,
-		LonEnd:    m.Lo2,
-		LonStep:   m.Di,
-		Data:      m.Values,
+		Variable:     canonicalVar,
+		ValidTime:    m.ValidTime,
+		StepHours:    m.StepHours,
+		Member:       int(m.PerturbationNumber),
+		NLats:        m.Nj,
+		NLons:        m.Ni,
+		LatStart:     m.La1,
+		LatEnd:       m.La2,
+		LatStep:      m.Dj,
+		LonStart:     m.Lo1,
+		LonEnd:       m.Lo2,
+		LonStep:      m.Di,
+		Data:         m.Values,
 	}
 }
+
+// ParseAll decodes all consecutive GRIB2 messages from a single data buffer.
+func ParseAll(data []byte) ([]*Message, error) {
+	var messages []*Message
+	pos := 0
+
+	for pos < len(data) {
+		idx := bytes.Index(data[pos:], []byte("GRIB"))
+		if idx == -1 {
+			break
+		}
+		absStart := pos + idx
+		if len(data)-absStart < 16 {
+			break
+		}
+
+		msgLen := binary.BigEndian.Uint64(data[absStart+8 : absStart+16])
+		if msgLen <= 0 {
+			pos = absStart + 4
+			continue
+		}
+
+		end := absStart + int(msgLen)
+		if end > len(data) {
+			// Might be slightly padded or partial, attempt to parse what we have if buffer is large enough
+			end = len(data)
+		}
+
+		msg, err := Parse(data[absStart:end])
+		if err != nil {
+			// If error, advance past "GRIB" and continue
+			pos = absStart + 4
+			continue
+		}
+
+		messages = append(messages, msg)
+		if msg.TotalLength > 0 {
+			pos = absStart + int(msg.TotalLength)
+		} else {
+			pos = absStart + 16
+		}
+	}
+
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("no valid GRIB2 messages found in buffer")
+	}
+
+	return messages, nil
+}
+

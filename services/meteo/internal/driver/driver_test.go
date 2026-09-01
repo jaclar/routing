@@ -117,3 +117,113 @@ func TestDownloadAndInspectICON(t *testing.T) {
 	}
 	t.Logf("ICON Slice result: NLats=%d, NLons=%d, LenData=%d", slice.NLats, slice.NLons, len(slice.Data))
 }
+
+func TestGEFSDriverDiscovery(t *testing.T) {
+	gefs := NewGEFSDriver(nil)
+	cycle := &model.ModelCycle{
+		ModelName:     model.ModelGEFS050,
+		ReferenceTime: time.Date(2026, 8, 30, 6, 0, 0, 0, time.UTC),
+		ResolutionDeg: 0.50,
+		ForecastSteps: []int{0, 6, 12},
+		Members:       defaultGEFSMembers(), // 31 members
+		IsEnsemble:    true,
+	}
+	vars := []string{model.VarWindU10m, model.VarWindV10m}
+
+	tasks, err := gefs.DiscoverSlices(cycle, vars)
+	if err != nil {
+		t.Fatalf("GEFS DiscoverSlices failed: %v", err)
+	}
+
+	// 3 steps * 2 variables * 31 members = 186 tasks
+	expected := 3 * 2 * 31
+	if len(tasks) != expected {
+		t.Errorf("expected %d GEFS tasks, got %d", expected, len(tasks))
+	}
+
+	// Verify control member 0 and perturbed member 1 URLs
+	hasCtl := false
+	hasPert := false
+	for _, tsk := range tasks {
+		if tsk.Member == 0 && strings.Contains(tsk.SourceURL, "gec00") {
+			hasCtl = true
+		}
+		if tsk.Member == 1 && strings.Contains(tsk.SourceURL, "gep01") {
+			hasPert = true
+		}
+	}
+	if !hasCtl || !hasPert {
+		t.Errorf("expected tasks to include gec00 and gep01 URLs (ctl=%v, pert=%v)", hasCtl, hasPert)
+	}
+}
+
+func TestECMWFENSDriverDiscovery(t *testing.T) {
+	drv := NewECMWFENSDriver(nil)
+	cycle := &model.ModelCycle{
+		ModelName:     model.ModelIFSEns025,
+		ReferenceTime: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+		ResolutionDeg: 0.25,
+		ForecastSteps: []int{0, 6},
+		Members:       defaultECMWFENSMembers(), // 50 members
+		IsEnsemble:    true,
+	}
+	vars := []string{model.VarWindU10m}
+
+	tasks, err := drv.DiscoverSlices(cycle, vars)
+	if err != nil {
+		t.Fatalf("ECMWF-ENS DiscoverSlices failed: %v", err)
+	}
+
+	// 2 steps * 1 var * 50 members = 100 tasks
+	expected := 2 * 1 * 50
+	if len(tasks) != expected {
+		t.Errorf("expected %d ECMWF-ENS tasks, got %d", expected, len(tasks))
+	}
+}
+
+func TestICONEPSDriverDiscovery(t *testing.T) {
+	drv := NewICONEPSDriver(nil)
+	cycle := &model.ModelCycle{
+		ModelName:     model.ModelICONEPS025,
+		ReferenceTime: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+		ResolutionDeg: 0.25,
+		ForecastSteps: []int{0, 3, 6},
+		Members:       defaultICONEPSMembers(),
+		IsEnsemble:    true,
+	}
+	vars := []string{model.VarWindU10m, model.VarWindV10m}
+
+	tasks, err := drv.DiscoverSlices(cycle, vars)
+	if err != nil {
+		t.Fatalf("ICON-EPS DiscoverSlices failed: %v", err)
+	}
+
+	// Bundled: 3 steps * 2 vars = 6 tasks
+	expected := 3 * 2
+	if len(tasks) != expected {
+		t.Errorf("expected %d ICON-EPS tasks, got %d", expected, len(tasks))
+	}
+	for _, tsk := range tasks {
+		if tsk.Member != -1 || len(tsk.Members) != 40 {
+			t.Errorf("expected bundled task with 40 members, got Member=%d, len(Members)=%d", tsk.Member, len(tsk.Members))
+		}
+	}
+}
+
+func TestDriverRegistry(t *testing.T) {
+	det := NewDeterministicDrivers(nil)
+	if len(det) != 3 {
+		t.Errorf("expected 3 deterministic drivers, got %d", len(det))
+	}
+
+	ens := NewEnsembleDrivers(nil)
+	if len(ens) != 3 {
+		t.Errorf("expected 3 ensemble drivers, got %d", len(ens))
+	}
+
+	all := NewAllDrivers(nil)
+	if len(all) != 6 {
+		t.Errorf("expected 6 total drivers, got %d", len(all))
+	}
+}
+

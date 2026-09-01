@@ -152,6 +152,101 @@ func TestRealStoresInspection(t *testing.T) {
 	}
 }
 
+func TestEngineEnsembleForecastExecution(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "meteo_engine_ens_test_*")
+	defer os.RemoveAll(tmpDir)
+
+	mgr, _ := zarr.NewStoreManager(tmpDir)
+	refTime := time.Date(2026, 8, 30, 6, 0, 0, 0, time.UTC)
+	members := []int{0, 1, 2, 3, 4}
+	cycle := &model.ModelCycle{
+		ModelName:     model.ModelGEFS050,
+		ReferenceTime: refTime,
+		ResolutionDeg: 0.50,
+		ForecastSteps: []int{0, 6},
+		Members:       members,
+		IsEnsemble:    true,
+	}
+
+	latStart, latEnd, latStep := 15.0, 10.0, 0.50
+	lonStart, lonEnd, lonStep := -65.0, -60.0, 0.50
+	vars := []string{model.VarWindU10m, model.VarWindV10m}
+
+	writer, stagingDir, _ := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars)
+	nlats := 11
+	nlons := 11
+
+	for _, step := range cycle.ForecastSteps {
+		for _, mID := range members {
+			uData := make([]float32, nlats*nlons)
+			vData := make([]float32, nlats*nlons)
+
+			for i := 0; i < nlats*nlons; i++ {
+				uData[i] = float32(10.0 + float64(mID)*2.0)
+				vData[i] = 0.0
+			}
+			_ = writer.WriteSlice(&model.RawGridSlice{Variable: model.VarWindU10m, StepHours: step, Member: mID, Data: uData})
+			_ = writer.WriteSlice(&model.RawGridSlice{Variable: model.VarWindV10m, StepHours: step, Member: mID, Data: vData})
+		}
+	}
+	_ = writer.Finalize()
+	_ = mgr.PromoteStagingStore(cycle.ModelName, cycle.ReferenceTime, stagingDir)
+
+	engine := NewEngine(mgr)
+	ctx := context.Background()
+
+	req := &ForecastRequest{
+		Latitudes:     []float64{12.0},
+		Longitudes:    []float64{-62.0},
+		Models:        []string{"gefs_0p50"},
+		Hourly:        []string{"wind_speed_10m", "wind_speed_10m_p10", "wind_speed_10m_p90", "wind_speed_10m_std", "prob_wind_ge_25kt", "wind_speed_10m_member02"},
+		WindSpeedUnit: "kn",
+	}
+
+	resp, err := engine.ExecuteForecast(ctx, req)
+	if err != nil {
+		t.Fatalf("ExecuteForecast for GEFS ensemble failed: %v", err)
+	}
+
+	omResp, ok := resp.(*OpenMeteoResponse)
+	if !ok {
+		t.Fatalf("expected *OpenMeteoResponse, got %T", resp)
+	}
+
+	// Verify mean wind speed
+	if meanSpd, ok := omResp.Hourly["wind_speed_10m"].([]float64); !ok || len(meanSpd) != 2 {
+		t.Errorf("missing or invalid wind_speed_10m: %v", omResp.Hourly["wind_speed_10m"])
+	}
+
+	// Verify percentiles
+	if p10, ok := omResp.Hourly["wind_speed_10m_p10"].([]float64); !ok || len(p10) != 2 {
+		t.Errorf("missing or invalid wind_speed_10m_p10: %v", omResp.Hourly["wind_speed_10m_p10"])
+	}
+	if p90, ok := omResp.Hourly["wind_speed_10m_p90"].([]float64); !ok || len(p90) != 2 {
+		t.Errorf("missing or invalid wind_speed_10m_p90: %v", omResp.Hourly["wind_speed_10m_p90"])
+	}
+
+	// Verify member 2
+	if m2, ok := omResp.Hourly["wind_speed_10m_member02"].([]float64); !ok || len(m2) != 2 {
+		t.Errorf("missing or invalid wind_speed_10m_member02: %v", omResp.Hourly["wind_speed_10m_member02"])
+	} else {
+		// Member 2 U = 10 + 2*2 = 14 m/s = 27.21 kn
+		if m2[0] < 27.0 || m2[0] > 27.5 {
+			t.Errorf("expected member 2 ~27.2 kn, got %f", m2[0])
+		}
+	}
+
+	// Test ExecuteGridWithStat
+	gridResp, err := engine.ExecuteGridWithStat(ctx, "gefs_0p50", "p90", -1, 11.0, 14.0, -64.0, -61.0, 0.5, 0.5, 0)
+	if err != nil {
+		t.Fatalf("ExecuteGridWithStat failed: %v", err)
+	}
+	if gridResp.NLats <= 0 || gridResp.NLons <= 0 || len(gridResp.UData) == 0 {
+		t.Fatalf("invalid grid response dimensions: NLats=%d, NLons=%d", gridResp.NLats, gridResp.NLons)
+	}
+}
+
+
 func min(a, b int) int {
 	if a < b {
 		return a

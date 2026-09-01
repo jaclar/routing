@@ -242,6 +242,139 @@ func (e *Engine) buildSingleResponse(store *zarr.Store, si *interp.SpatialInterp
 		hourly[model.OMWaveHeight] = converted
 	}
 
+	// 8. Ensemble Statistics: Percentiles, Spread, and Exceedance Probabilities
+	unit := req.WindSpeedUnit
+
+	// Percentiles (P10, P50, P90)
+	if reqMap[model.OMWindSpeed10mP10] || reqMap["windspeed_10m_p10"] {
+		hourlyUnits[model.OMWindSpeed10mP10] = unit
+		if ts, err := interp.InterpolateTimeSeries(store, si, "wind_speed_p10", lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round2(model.ConvertSpeed(v, unit))
+				}
+			}
+			hourly[model.OMWindSpeed10mP10] = converted
+		}
+	}
+
+	if reqMap[model.OMWindSpeed10mP50] || reqMap["windspeed_10m_p50"] {
+		hourlyUnits[model.OMWindSpeed10mP50] = unit
+		if ts, err := interp.InterpolateTimeSeries(store, si, "wind_speed_p50", lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round2(model.ConvertSpeed(v, unit))
+				}
+			}
+			hourly[model.OMWindSpeed10mP50] = converted
+		}
+	}
+
+	if reqMap[model.OMWindSpeed10mP90] || reqMap["windspeed_10m_p90"] {
+		hourlyUnits[model.OMWindSpeed10mP90] = unit
+		if ts, err := interp.InterpolateTimeSeries(store, si, "wind_speed_p90", lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round2(model.ConvertSpeed(v, unit))
+				}
+			}
+			hourly[model.OMWindSpeed10mP90] = converted
+		}
+	}
+
+	if reqMap[model.OMWindSpeed10mStd] || reqMap["windspeed_10m_std"] {
+		hourlyUnits[model.OMWindSpeed10mStd] = unit
+		if ts, err := interp.InterpolateTimeSeries(store, si, "wind_speed_std", lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round2(model.ConvertSpeed(v, unit))
+				}
+			}
+			hourly[model.OMWindSpeed10mStd] = converted
+		}
+	}
+
+	if reqMap[model.OMWindGusts10mP90] || reqMap["wind_gusts_10m_p90"] {
+		hourlyUnits[model.OMWindGusts10mP90] = unit
+		varSrc := model.VarWindGust10m + "_p90"
+		if ts, err := interp.InterpolateTimeSeries(store, si, varSrc, lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round2(model.ConvertSpeed(v, unit))
+				}
+			}
+			hourly[model.OMWindGusts10mP90] = converted
+		} else if len(pt.WindGust10m) > 0 {
+			converted := make([]float64, len(pt.WindGust10m))
+			for i, v := range pt.WindGust10m {
+				if !math.IsNaN(v) {
+					converted[i] = round2(model.ConvertSpeed(v, unit))
+				}
+			}
+			hourly[model.OMWindGusts10mP90] = converted
+		}
+	}
+
+	// Exceedance probabilities
+	if reqMap[model.OMProbWindGE25kt] || reqMap["prob_wind_ge_25kt"] {
+		hourlyUnits[model.OMProbWindGE25kt] = "%"
+		if ts, err := interp.InterpolateTimeSeries(store, si, "prob_wind_ge_25kt", lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round1(v * 100.0)
+				}
+			}
+			hourly[model.OMProbWindGE25kt] = converted
+		}
+	}
+
+	if reqMap[model.OMProbWindGE34kt] || reqMap["prob_wind_ge_34kt"] {
+		hourlyUnits[model.OMProbWindGE34kt] = "%"
+		if ts, err := interp.InterpolateTimeSeries(store, si, "prob_wind_ge_34kt", lat, lon); err == nil {
+			converted := make([]float64, len(ts))
+			for i, v := range ts {
+				if !math.IsNaN(v) {
+					converted[i] = round1(v * 100.0)
+				}
+			}
+			hourly[model.OMProbWindGE34kt] = converted
+		}
+	}
+
+	// 9. Individual Member Queries (e.g. wind_speed_10m_member01, wind_speed_10m_member02)
+	for reqKey := range reqMap {
+		if strings.HasPrefix(reqKey, "wind_speed_10m_member") || strings.HasPrefix(reqKey, "windspeed_10m_member") {
+			parts := strings.Split(reqKey, "_member")
+			if len(parts) == 2 {
+				var mID int
+				_, err := fmt.Sscanf(parts[1], "%d", &mID)
+				if err == nil {
+					uMem, errU := interp.InterpolateMemberTimeSeries(store, si, model.VarWindU10m, mID, lat, lon)
+					vMem, errV := interp.InterpolateMemberTimeSeries(store, si, model.VarWindV10m, mID, lat, lon)
+					if errU == nil && errV == nil {
+						hourlyUnits[reqKey] = unit
+						memSpeed := make([]float64, len(uMem))
+						for idx := range uMem {
+							if !math.IsNaN(uMem[idx]) && !math.IsNaN(vMem[idx]) {
+								spd := math.Hypot(uMem[idx], vMem[idx])
+								memSpeed[idx] = round2(model.ConvertSpeed(spd, unit))
+							} else {
+								memSpeed[idx] = 0
+							}
+						}
+						hourly[reqKey] = memSpeed
+					}
+				}
+			}
+		}
+	}
+
 	elapsedMS := float64(time.Since(startTime).Microseconds()) / 1000.0
 
 	res := &OpenMeteoResponse{
@@ -278,6 +411,11 @@ func (e *Engine) buildSingleResponse(store *zarr.Store, si *interp.SpatialInterp
 
 // ExecuteGrid extracts a 2D bounding box slice across the grid at a specific forecast step.
 func (e *Engine) ExecuteGrid(ctx context.Context, modelID string, minLat, maxLat, minLon, maxLon, latStep, lonStep float64, stepHour int) (*GridResponse, error) {
+	return e.ExecuteGridWithStat(ctx, modelID, "mean", -1, minLat, maxLat, minLon, maxLon, latStep, lonStep, stepHour)
+}
+
+// ExecuteGridWithStat extracts a 2D bounding box slice with statistic or specific ensemble member selection.
+func (e *Engine) ExecuteGridWithStat(ctx context.Context, modelID, stat string, member int, minLat, maxLat, minLon, maxLon, latStep, lonStep float64, stepHour int) (*GridResponse, error) {
 	store, _, err := e.resolveStore(modelID)
 	if err != nil {
 		return nil, err
@@ -309,6 +447,16 @@ func (e *Engine) ExecuteGrid(ctx context.Context, modelID string, minLat, maxLat
 
 	si := interp.NewSpatialInterpolator(store)
 
+	// Determine variable source based on stat / member
+	var uVar, vVar string
+	if stat != "" && stat != "mean" && store.IsEnsemble {
+		uVar = model.VarWindU10m + "_" + stat
+		vVar = model.VarWindV10m + "_" + stat
+	} else {
+		uVar = model.VarWindU10m
+		vVar = model.VarWindV10m
+	}
+
 	for i := 0; i < nlats; i++ {
 		lat := minLat + float64(i)*latStep
 		uGrid[i] = make([]float32, nlons)
@@ -318,15 +466,30 @@ func (e *Engine) ExecuteGrid(ctx context.Context, modelID string, minLat, maxLat
 			lon := minLon + float64(j)*lonStep
 			i0, i1, j0, j1, u, v := si.GridCoords(lat, lon)
 
-			u00, _ := store.GetPointTimeSeries(model.VarWindU10m, i0, j0)
-			u10, _ := store.GetPointTimeSeries(model.VarWindU10m, i1, j0)
-			u01, _ := store.GetPointTimeSeries(model.VarWindU10m, i0, j1)
-			u11, _ := store.GetPointTimeSeries(model.VarWindU10m, i1, j1)
+			var u00, u10, u01, u11 []float32
+			var v00, v10, v01, v11 []float32
 
-			v00, _ := store.GetPointTimeSeries(model.VarWindV10m, i0, j0)
-			v10, _ := store.GetPointTimeSeries(model.VarWindV10m, i1, j0)
-			v01, _ := store.GetPointTimeSeries(model.VarWindV10m, i0, j1)
-			v11, _ := store.GetPointTimeSeries(model.VarWindV10m, i1, j1)
+			if member >= 0 && store.IsEnsemble {
+				u00, _ = store.GetMemberPointTimeSeries(model.VarWindU10m, member, i0, j0)
+				u10, _ = store.GetMemberPointTimeSeries(model.VarWindU10m, member, i1, j0)
+				u01, _ = store.GetMemberPointTimeSeries(model.VarWindU10m, member, i0, j1)
+				u11, _ = store.GetMemberPointTimeSeries(model.VarWindU10m, member, i1, j1)
+
+				v00, _ = store.GetMemberPointTimeSeries(model.VarWindV10m, member, i0, j0)
+				v10, _ = store.GetMemberPointTimeSeries(model.VarWindV10m, member, i1, j0)
+				v01, _ = store.GetMemberPointTimeSeries(model.VarWindV10m, member, i0, j1)
+				v11, _ = store.GetMemberPointTimeSeries(model.VarWindV10m, member, i1, j1)
+			} else {
+				u00, _ = store.GetPointTimeSeries(uVar, i0, j0)
+				u10, _ = store.GetPointTimeSeries(uVar, i1, j0)
+				u01, _ = store.GetPointTimeSeries(uVar, i0, j1)
+				u11, _ = store.GetPointTimeSeries(uVar, i1, j1)
+
+				v00, _ = store.GetPointTimeSeries(vVar, i0, j0)
+				v10, _ = store.GetPointTimeSeries(vVar, i1, j0)
+				v01, _ = store.GetPointTimeSeries(vVar, i0, j1)
+				v11, _ = store.GetPointTimeSeries(vVar, i1, j1)
+			}
 
 			if len(u00) > stepIdx && len(u10) > stepIdx && len(u01) > stepIdx && len(u11) > stepIdx {
 				uInterp := interp.BilinearInterp(u00[stepIdx], u10[stepIdx], u01[stepIdx], u11[stepIdx], u, v)
@@ -370,8 +533,14 @@ func normalizeModelID(slug string) string {
 		return model.ModelAIFS025
 	case "icon", "icon_global", "dwd_icon":
 		return model.ModelICON025
+	case "gefs", "gefs_0p50", "noaa_gefs", "gefs050", "gefs_seamless":
+		return model.ModelGEFS050
+	case "ifs_ens", "ifs_ens_0p25", "ecmwf_ens", "ecmwf_ifs_ens", "ifs_0p25_ens":
+		return model.ModelIFSEns025
+	case "icon_eps", "icon_eps_global", "icon_eps_0p25", "dwd_icon_eps":
+		return model.ModelICONEPS025
 	default:
-		return model.ModelGFS025
+		return slug
 	}
 }
 
@@ -382,3 +551,4 @@ func round1(val float64) float64 {
 func round2(val float64) float64 {
 	return math.Round(val*100.0) / 100.0
 }
+
