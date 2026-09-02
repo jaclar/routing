@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
+	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
+	"github.com/jaclar/routing-service/weather"
 )
 
 func TestConfidenceCategorization(t *testing.T) {
@@ -33,7 +36,7 @@ func TestConfidenceCategorization(t *testing.T) {
 }
 
 func TestEvaluateRouteSynthetic(t *testing.T) {
-	eval := NewEvaluator("", nil)
+	eval := NewEvaluator("", nil, nil)
 
 	startTime := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	wps := []isochrone.Waypoint{
@@ -138,7 +141,7 @@ func TestStatisticalHelpers(t *testing.T) {
 }
 
 func TestDeterministicModelMapping(t *testing.T) {
-	eval := NewEvaluator("", nil)
+	eval := NewEvaluator("", nil, nil)
 
 	startTime := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	wps := []isochrone.Waypoint{
@@ -180,5 +183,122 @@ func TestDeterministicModelMapping(t *testing.T) {
 		conf.ScoreStrategyA,
 		conf.ScoreStrategyB,
 		conf.AgreementScore,
+	)
+}
+
+func TestTrajectoryLandCollisionAvoidance(t *testing.T) {
+	lm := landmask.NewGSHHGLandMask()
+	eval := NewEvaluator("", nil, lm)
+
+	startTime := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	// Kattegat route near Denmark / Sweden
+	wps := []isochrone.Waypoint{
+		{Lat: 57.5, Lon: 11.0, Time: startTime, HeadingDeg: 120.0, BoatSpeedKts: 7.0, TWSKts: 15.0, TWDDeg: 240.0, DistanceNM: 0.0},
+		{Lat: 57.2, Lon: 11.5, Time: startTime.Add(3 * time.Hour), HeadingDeg: 120.0, BoatSpeedKts: 7.0, TWSKts: 15.0, TWDDeg: 240.0, DistanceNM: 25.0},
+		{Lat: 56.8, Lon: 11.9, Time: startTime.Add(6 * time.Hour), HeadingDeg: 120.0, BoatSpeedKts: 7.0, TWSKts: 15.0, TWDDeg: 240.0, DistanceNM: 50.0},
+	}
+	route := &isochrone.RouteResult{
+		BoatName:           "Test Cruiser",
+		StartTime:          startTime,
+		ArrivalTime:        startTime.Add(6 * time.Hour),
+		TotalDurationHours: 6.0,
+		TotalDistanceNM:    50.0,
+		Waypoints:          wps,
+	}
+
+	conf, err := eval.EvaluateRoute(context.Background(), route, polar.Get36ftKetchPolar(), "gfs_0p25")
+	if err != nil {
+		t.Fatalf("EvaluateRoute failed: %v", err)
+	}
+
+	if conf.EnsembleComparison == nil || len(conf.EnsembleComparison.Members) == 0 {
+		t.Fatalf("expected populated ensemble members")
+	}
+
+	for _, m := range conf.EnsembleComparison.Members {
+		for ptIdx, pt := range m.Trajectory {
+			if lm.IsLand(pt) {
+				t.Errorf("Member %d waypoint %d (lat=%f, lon=%f) is on land!", m.MemberID, ptIdx, pt.Lat, pt.Lon)
+			}
+		}
+	}
+}
+
+func TestMultiIsochroneEnsembleSolve(t *testing.T) {
+	lm := landmask.NewGSHHGLandMask()
+	eval := NewEvaluator("", nil, lm)
+
+	startTime := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	start := geo.Point{Lat: 20.0, Lon: -60.0}
+	dest := geo.Point{Lat: 22.0, Lon: -57.0}
+
+	timestamps := []time.Time{startTime, startTime.Add(6 * time.Hour), startTime.Add(12 * time.Hour), startTime.Add(24 * time.Hour)}
+	baseGrid := weather.NewWeatherGrid(18.0, 24.0, 1.0, -62.0, -55.0, 1.0, timestamps)
+	for tIdx := range timestamps {
+		for i := range baseGrid.UData[tIdx] {
+			for j := range baseGrid.UData[tIdx][i] {
+				baseGrid.UData[tIdx][i][j] = -7.0 // easterly trade wind
+				baseGrid.VData[tIdx][i][j] = -2.0
+			}
+		}
+	}
+
+	cfg := isochrone.DefaultRouterConfig()
+	cfg.TimeStep = 30 * time.Minute
+
+	primaryRoute, err := isochrone.CalculateOptimalRoute(
+		start,
+		dest,
+		startTime,
+		polar.Get36ftKetchPolar(),
+		weather.NewMemberWeatherEngine(0, baseGrid),
+		lm,
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("Primary route calculation failed: %v", err)
+	}
+
+	conf, err := eval.EvaluateRouteMultiIsochrone(
+		context.Background(),
+		primaryRoute,
+		start,
+		dest,
+		polar.Get36ftKetchPolar(),
+		baseGrid,
+		"gefs_0p50",
+		cfg,
+	)
+	if err != nil {
+		t.Fatalf("EvaluateRouteMultiIsochrone failed: %v", err)
+	}
+
+	if conf.EnsembleComparison == nil {
+		t.Fatalf("Expected EnsembleComparison to be populated")
+	}
+
+	if len(conf.EnsembleComparison.Members) != 31 {
+		t.Fatalf("Expected 31 solved member routes, got %d", len(conf.EnsembleComparison.Members))
+	}
+
+	for _, m := range conf.EnsembleComparison.Members {
+		if m.TotalDurationHours <= 0 {
+			t.Errorf("Member %d duration invalid: %f", m.MemberID, m.TotalDurationHours)
+		}
+		if len(m.Trajectory) == 0 {
+			t.Errorf("Member %d has empty trajectory", m.MemberID)
+		}
+		if len(m.Waypoints) == 0 {
+			t.Errorf("Member %d has empty waypoints", m.MemberID)
+		}
+	}
+
+	t.Logf("Multi-isochrone solve successful! 31 members: Fastest=%.1fh (M#%d), Slowest=%.1fh (M#%d), IQR=%.1fh, Strategy B Score=%.1f%%",
+		conf.EnsembleComparison.MinDurationHours,
+		conf.EnsembleComparison.FastestMemberID,
+		conf.EnsembleComparison.MaxDurationHours,
+		conf.EnsembleComparison.SlowestMemberID,
+		conf.EnsembleComparison.IQRDurationHours,
+		conf.ScoreStrategyB,
 	)
 }

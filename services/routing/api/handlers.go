@@ -33,11 +33,12 @@ func NewServer(vppBaseURL string) *Server {
 	if meteoURL == "" {
 		meteoURL = "https://routing.jaclar.net"
 	}
+	lm := landmask.NewGSHHGLandMask()
 	return &Server{
 		weatherProvider: weather.NewMultiModelWeatherProvider(now),
-		landMask:        landmask.NewGSHHGLandMask(),
+		landMask:        lm,
 		vppClient:       polar.NewVPPClient(vppBaseURL),
-		confEvaluator:   confidence.NewEvaluator(meteoURL, nil),
+		confEvaluator:   confidence.NewEvaluator(meteoURL, nil, lm),
 	}
 }
 
@@ -127,9 +128,10 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type solveResult struct {
-		modelID string
-		route   *isochrone.RouteResult
-		err     error
+		modelID  string
+		route    *isochrone.RouteResult
+		baseGrid *weather.WeatherGrid
+		err      error
 	}
 
 	var wg sync.WaitGroup
@@ -140,8 +142,13 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 		go func(modelID string) {
 			defer wg.Done()
 			engine := s.weatherProvider.GetEngine(modelID)
-			// Prefetch region data
-			_, _ = engine.FetchRegion(minLat, maxLat, minLon, maxLon, 1.5, 1.5)
+			// Prefetch region data and fail explicitly if live forecast is unreachable
+			baseGrid, fetchErr := engine.FetchRegion(minLat, maxLat, minLon, maxLon, 1.5, 1.5)
+			if fetchErr != nil {
+				log.Printf("[ERROR] Live weather fetch failed for model %s: %v", modelID, fetchErr)
+				resultChan <- solveResult{modelID: modelID, route: nil, baseGrid: nil, err: fmt.Errorf("live weather fetch failed for %s: %w", modelID, fetchErr)}
+				return
+			}
 
 			route, err := isochrone.CalculateOptimalRoute(
 				req.Start,
@@ -152,7 +159,7 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 				s.landMask,
 				cfg,
 			)
-			resultChan <- solveResult{modelID: modelID, route: route, err: err}
+			resultChan <- solveResult{modelID: modelID, route: route, baseGrid: baseGrid, err: err}
 		}(mID)
 	}
 
@@ -169,8 +176,17 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 			lastErr = res.err
 		} else if res.route != nil {
 			res.route.ModelID = res.modelID
-			// Evaluate ensemble confidence (Strategy A & Strategy B)
-			conf, confErr := s.confEvaluator.EvaluateRoute(r.Context(), res.route, polarTable, res.modelID)
+			// Evaluate ensemble confidence with full multi-isochrone solves across all N members
+			conf, confErr := s.confEvaluator.EvaluateRouteMultiIsochrone(
+				r.Context(),
+				res.route,
+				req.Start,
+				req.Dest,
+				polarTable,
+				res.baseGrid,
+				res.modelID,
+				cfg,
+			)
 			if confErr == nil && conf != nil {
 				res.route.Confidence = conf
 				for i := range res.route.Waypoints {
@@ -282,8 +298,17 @@ func (s *Server) HandleWeatherGrid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	engine := s.weatherProvider.GetEngine(canonicalModel)
-	_, _ = engine.FetchRegion(req.MinLat, req.MaxLat, req.MinLon, req.MaxLon, req.LatStep, req.LonStep)
-	grid := engine.GetGrid(req.MinLat, req.MaxLat, req.MinLon, req.MaxLon, req.LatStep, req.LonStep, t)
+	grid, err := engine.GetGrid(req.MinLat, req.MaxLat, req.MinLon, req.MaxLon, req.LatStep, req.LonStep, t)
+	if err != nil {
+		log.Printf("[ERROR] Live weather grid failed for model %s: %v", canonicalModel, err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  true,
+			"reason": fmt.Sprintf("Live weather grid unavailable: %v", err),
+		})
+		return
+	}
 
 	resp := WeatherGridResponse{
 		Model:   canonicalModel,

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jaclar/routing-service/geo"
+	"github.com/jaclar/routing-service/isochrone"
 )
 
 // RouteConfidence encapsulates the complete confidence analysis across both Strategy A (statistics) and Strategy B (4D members).
@@ -64,13 +65,17 @@ type EnsembleComparison struct {
 	Members           []MemberOutcome `json:"members,omitempty"`
 }
 
-// MemberOutcome holds the simulated passage metrics for a single ensemble member.
+// MemberOutcome holds the simulated or solved passage metrics for a single ensemble member.
 type MemberOutcome struct {
-	MemberID           int         `json:"member_id"`
-	TotalDurationHours float64     `json:"total_duration_hours"`
-	AverageSpeedKts    float64     `json:"average_speed_kts"`
-	MaxWindKts         float64     `json:"max_wind_kts"`
-	Trajectory         []geo.Point `json:"trajectory,omitempty"` // Spatial coordinates along simulated member route
+	MemberID           int                  `json:"member_id"`
+	TotalDurationHours float64              `json:"total_duration_hours"`
+	TotalDistanceNM    float64              `json:"total_distance_nm"`
+	AverageSpeedKts    float64              `json:"average_speed_kts"`
+	MaxWindKts         float64              `json:"max_wind_kts"`
+	TotalTacks         int                  `json:"total_tacks"`
+	DestinationReached bool                 `json:"destination_reached"`
+	Waypoints          []isochrone.Waypoint `json:"waypoints,omitempty"`
+	Trajectory         []geo.Point          `json:"trajectory,omitempty"` // Spatial coordinates along simulated or solved member route
 }
 
 // CategorizeConfidence assigns a human-readable confidence tier given a score from 0 to 100.

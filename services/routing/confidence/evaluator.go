@@ -9,21 +9,25 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
+	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
+	"github.com/jaclar/routing-service/weather"
 )
 
 // Evaluator evaluates route confidence using both Strategy A (precomputed stats) and Strategy B (4D member simulation).
 type Evaluator struct {
 	httpClient *http.Client
 	meteoURL   string
+	landMask   *landmask.LandMask
 }
 
 // NewEvaluator creates a new confidence evaluator.
-func NewEvaluator(meteoURL string, client *http.Client) *Evaluator {
+func NewEvaluator(meteoURL string, client *http.Client, lm *landmask.LandMask) *Evaluator {
 	if client == nil {
 		client = &http.Client{Timeout: 8 * time.Second}
 	}
@@ -33,6 +37,7 @@ func NewEvaluator(meteoURL string, client *http.Client) *Evaluator {
 	return &Evaluator{
 		httpClient: client,
 		meteoURL:   strings.TrimRight(strings.TrimSpace(meteoURL), "/"),
+		landMask:   lm,
 	}
 }
 
@@ -286,14 +291,38 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 				memberMaxWind[m] = mWindSpeed
 			}
 
-			// Spatial track point
+			// Spatial track point with land collision validation
 			if i == 0 || i == nWps-1 || envelope <= 0.001 {
 				memberTrajectories[m] = append(memberTrajectories[m], geo.Point{Lat: wp.Lat, Lon: wp.Lon})
 			} else {
 				offsetDistMeters := mPerturb * lateralSpreadNM * envelope * geo.NMToMeters
 				offsetBearing := geo.NormalizeAngle360(wp.HeadingDeg + 90.0)
-				mPt := geo.DestinationPoint(geo.Point{Lat: wp.Lat, Lon: wp.Lon}, offsetDistMeters, offsetBearing)
-				memberTrajectories[m] = append(memberTrajectories[m], mPt)
+
+				targetPt := geo.Point{Lat: wp.Lat, Lon: wp.Lon}
+				if e.landMask != nil && math.Abs(offsetDistMeters) > 10.0 {
+					var prevPt geo.Point
+					if len(memberTrajectories[m]) > 0 {
+						prevPt = memberTrajectories[m][len(memberTrajectories[m])-1]
+					} else {
+						prevPt = geo.Point{Lat: wp.Lat, Lon: wp.Lon}
+					}
+					foundNavigable := false
+					// Try decreasing offset distances (100% -> 75% -> 50% -> 25% -> 0%)
+					for _, scale := range []float64{1.0, 0.75, 0.50, 0.25, 0.0} {
+						testPt := geo.DestinationPoint(geo.Point{Lat: wp.Lat, Lon: wp.Lon}, offsetDistMeters*scale, offsetBearing)
+						if !e.landMask.IsLand(testPt) && !e.landMask.SegmentIntersectsLand(prevPt, testPt, 3) {
+							targetPt = testPt
+							foundNavigable = true
+							break
+						}
+					}
+					if !foundNavigable {
+						targetPt = geo.Point{Lat: wp.Lat, Lon: wp.Lon}
+					}
+				} else {
+					targetPt = geo.DestinationPoint(geo.Point{Lat: wp.Lat, Lon: wp.Lon}, offsetDistMeters, offsetBearing)
+				}
+				memberTrajectories[m] = append(memberTrajectories[m], targetPt)
 			}
 		}
 
@@ -582,4 +611,261 @@ func absInt64(n int64) int64 {
 		return -n
 	}
 	return n
+}
+
+// SolveMultiIsochroneEnsemble executes independent isochrone wavefront pathfinding solves for all N ensemble members.
+func (e *Evaluator) SolveMultiIsochroneEnsemble(
+	ctx context.Context,
+	start geo.Point,
+	dest geo.Point,
+	startTime time.Time,
+	polarTable *polar.PolarTable,
+	baseGrid *weather.WeatherGrid,
+	numMembers int,
+	cfg isochrone.RouterConfig,
+) ([]MemberOutcome, error) {
+	if baseGrid == nil || numMembers <= 0 {
+		return nil, fmt.Errorf("invalid base grid or member count")
+	}
+
+	memberGrids := weather.GenerateEnsembleMemberGrids(baseGrid, numMembers)
+	if len(memberGrids) == 0 {
+		return nil, fmt.Errorf("failed to generate ensemble member grids")
+	}
+
+	outcomes := make([]MemberOutcome, numMembers)
+	type memberJob struct {
+		mID  int
+		grid *weather.WeatherGrid
+	}
+	type memberResult struct {
+		mID     int
+		outcome MemberOutcome
+		err     error
+	}
+
+	jobChan := make(chan memberJob, numMembers)
+	resChan := make(chan memberResult, numMembers)
+
+	numWorkers := 8
+	if numWorkers > numMembers {
+		numWorkers = numMembers
+	}
+
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobChan {
+				select {
+				case <-ctx.Done():
+					resChan <- memberResult{mID: job.mID, err: ctx.Err()}
+					return
+				default:
+				}
+
+				mEngine := weather.NewMemberWeatherEngine(job.mID, job.grid)
+				mRoute, err := isochrone.CalculateOptimalRoute(
+					start,
+					dest,
+					startTime,
+					polarTable,
+					mEngine,
+					e.landMask,
+					cfg,
+				)
+				if err != nil {
+					resChan <- memberResult{mID: job.mID, err: err}
+					continue
+				}
+
+				traj := make([]geo.Point, len(mRoute.Waypoints))
+				for idx, wp := range mRoute.Waypoints {
+					traj[idx] = geo.Point{Lat: wp.Lat, Lon: wp.Lon}
+				}
+
+				outcome := MemberOutcome{
+					MemberID:           job.mID,
+					TotalDurationHours: round1(mRoute.TotalDurationHours),
+					TotalDistanceNM:    round1(mRoute.TotalDistanceNM),
+					AverageSpeedKts:    round1(mRoute.AverageSpeedKts),
+					MaxWindKts:         round1(mRoute.MaxWindEncountered),
+					TotalTacks:         mRoute.TotalTacks,
+					DestinationReached: mRoute.DestinationReached,
+					Waypoints:          mRoute.Waypoints,
+					Trajectory:         traj,
+				}
+				resChan <- memberResult{mID: job.mID, outcome: outcome, err: nil}
+			}
+		}()
+	}
+
+	for m := 0; m < numMembers; m++ {
+		jobChan <- memberJob{mID: m, grid: memberGrids[m]}
+	}
+	close(jobChan)
+
+	wg.Wait()
+	close(resChan)
+
+	validCount := 0
+	for res := range resChan {
+		if res.err == nil && res.outcome.TotalDurationHours > 0 {
+			outcomes[res.mID] = res.outcome
+			validCount++
+		}
+	}
+
+	if validCount == 0 {
+		return nil, fmt.Errorf("all member isochrone solves failed")
+	}
+
+	var cleanOutcomes []MemberOutcome
+	for _, o := range outcomes {
+		if o.TotalDurationHours > 0 {
+			cleanOutcomes = append(cleanOutcomes, o)
+		}
+	}
+
+	return cleanOutcomes, nil
+}
+
+// EvaluateRouteMultiIsochrone evaluates confidence by executing full multi-isochrone solves across all N ensemble members.
+func (e *Evaluator) EvaluateRouteMultiIsochrone(
+	ctx context.Context,
+	primaryRoute *isochrone.RouteResult,
+	start geo.Point,
+	dest geo.Point,
+	polarTable *polar.PolarTable,
+	baseGrid *weather.WeatherGrid,
+	requestedModel string,
+	cfg isochrone.RouterConfig,
+) (*RouteConfidence, error) {
+	if primaryRoute == nil || len(primaryRoute.Waypoints) == 0 {
+		return nil, fmt.Errorf("cannot evaluate empty route")
+	}
+
+	canonicalModel := weather.NormalizeModelID(requestedModel)
+	var numMembers int
+	switch canonicalModel {
+	case weather.ModelIFSEns025:
+		numMembers = 50
+	case weather.ModelICONEPS:
+		numMembers = 40
+	case weather.ModelGEFS050, weather.ModelGFS025, weather.ModelIFS025, weather.ModelICONGlobal:
+		numMembers = 31
+	default:
+		numMembers = 31
+	}
+
+	// Solve all N member routes independently
+	memberOutcomes, err := e.SolveMultiIsochroneEnsemble(ctx, start, dest, primaryRoute.StartTime, polarTable, baseGrid, numMembers, cfg)
+	if err != nil || len(memberOutcomes) == 0 {
+		// Fall back to corridor evaluation if full multi-solve encountered errors
+		return e.EvaluateRoute(ctx, primaryRoute, polarTable, requestedModel)
+	}
+
+	directDistNM := geo.DistanceMeters(start, dest) * geo.MetersToNM
+	minArrivedDistNM := directDistNM * 0.50
+
+	// Separate fully arrived members from incomplete/stalled wavefronts
+	var arrivedDurations []float64
+	var arrivedMembers []MemberOutcome
+	fastestID, slowestID := 0, 0
+	fastestTime, slowestTime := 1e9, -1.0
+
+	for _, m := range memberOutcomes {
+		// A member is considered arrived if destination was reached or sailed >= 50% of direct distance
+		if m.DestinationReached || m.TotalDistanceNM >= minArrivedDistNM {
+			arrivedDurations = append(arrivedDurations, m.TotalDurationHours)
+			arrivedMembers = append(arrivedMembers, m)
+			if m.TotalDurationHours < fastestTime {
+				fastestTime = m.TotalDurationHours
+				fastestID = m.MemberID
+			}
+			if m.TotalDurationHours > slowestTime {
+				slowestTime = m.TotalDurationHours
+				slowestID = m.MemberID
+			}
+		}
+	}
+
+	// If no member arrived, use all outcomes
+	if len(arrivedDurations) == 0 {
+		for _, m := range memberOutcomes {
+			arrivedDurations = append(arrivedDurations, m.TotalDurationHours)
+		}
+	}
+
+	meanDur, stdDur := meanAndStd(arrivedDurations)
+	sort.Float64s(arrivedDurations)
+	minDur := arrivedDurations[0]
+	maxDur := arrivedDurations[len(arrivedDurations)-1]
+	p10Dur := percentile(arrivedDurations, 0.10)
+	p90Dur := percentile(arrivedDurations, 0.90)
+	iqrDur := percentile(arrivedDurations, 0.75) - percentile(arrivedDurations, 0.25)
+
+	// Strategy B Score derived from duration spread ratio with stall penalty
+	durSpreadRatio := stdDur / math.Max(meanDur, 1.0)
+	scoreB := clamp(100.0*math.Exp(-2.2*durSpreadRatio), 15.0, 98.0)
+	arrivalRatio := float64(len(arrivedDurations)) / float64(len(memberOutcomes))
+	scoreB = clamp(scoreB*arrivalRatio, 10.0, 98.0)
+
+	// Run standard Strategy A statistical evaluation for theoretical comparison and waypoint scores
+	baseConf, _ := e.EvaluateRoute(ctx, primaryRoute, polarTable, requestedModel)
+
+	var scoreA float64 = 75.0
+	var waypointsConf []WaypointConfidence
+	var statComp *StatisticalComparison
+	meanA := primaryRoute.TotalDurationHours
+	stdA := meanA * 0.05
+	if baseConf != nil {
+		scoreA = baseConf.ScoreStrategyA
+		waypointsConf = baseConf.Waypoints
+		statComp = baseConf.StatisticalComparison
+		if statComp != nil {
+			meanA = statComp.MeanDurationHours
+			stdA = statComp.StdDurationHours
+		}
+	}
+
+	overallScore := round1((scoreA*0.5 + scoreB*0.5))
+
+	// Physical Cross-Model Agreement:
+	// 1. Relative difference between Strategy A mean duration and Strategy B mean duration
+	nomDur := math.Max(primaryRoute.TotalDurationHours, 1.0)
+	durRelDiff := math.Abs(meanDur-meanA) / nomDur
+	durAgreement := math.Max(0.0, 100.0*(1.0-3.5*durRelDiff))
+
+	// 2. Relative difference between Strategy A and Strategy B uncertainty spreads
+	spreadRatio := math.Min(stdA, stdDur) / math.Max(math.Max(stdA, stdDur), 0.1)
+	spreadAgreement := 100.0 * spreadRatio
+
+	// Combined Physical Agreement Index
+	agreementScore := round1(clamp(0.70*durAgreement+0.30*spreadAgreement, 10.0, 99.0))
+
+	return &RouteConfidence{
+		OverallScore:          overallScore,
+		Category:              CategorizeConfidence(overallScore),
+		ScoreStrategyA:        round1(scoreA),
+		ScoreStrategyB:        round1(scoreB),
+		AgreementScore:        agreementScore,
+		NumMembers:            len(memberOutcomes),
+		Waypoints:             waypointsConf,
+		StatisticalComparison: statComp,
+		EnsembleComparison: &EnsembleComparison{
+			MeanDurationHours: round1(meanDur),
+			StdDurationHours:  round1(stdDur),
+			MinDurationHours:  round1(minDur),
+			MaxDurationHours:  round1(maxDur),
+			IQRDurationHours:  round1(iqrDur),
+			P10DurationHours:  round1(p10Dur),
+			P90DurationHours:  round1(p90Dur),
+			FastestMemberID:   fastestID,
+			SlowestMemberID:   slowestID,
+			MemberCount:       len(memberOutcomes),
+			Members:           memberOutcomes,
+		},
+	}, nil
 }
