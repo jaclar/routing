@@ -5,7 +5,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const routingUrl = env.ROUTING_SERVICE_URL || 'http://127.0.0.1:4080';
   const vppUrl = env.VPP_SERVICE_URL || 'http://127.0.0.1:4001';
-  const meteoUrl = env.METEO_SERVICE_URL || 'http://127.0.0.1:4081';
+  const meteoUrl = env.METEO_SERVICE_URL || 'https://routing.jaclar.net';
 
   const makeProxy = (target: string, serviceName: string) => ({
     target,

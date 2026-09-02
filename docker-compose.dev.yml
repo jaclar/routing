@@ -25,6 +25,8 @@ services:
   routing-service:
     ports:
       - "4080:4080"
+    environment:
+      - METEO_SERVICE_URL=${METEO_SERVICE_URL:-https://routing.jaclar.net}
 
   frontend:
     build:
@@ -38,4 +40,5 @@ services:
     environment:
       - ROUTING_SERVICE_URL=http://routing-service:4080
       - VPP_SERVICE_URL=http://vpp-service:4001
-      - METEO_SERVICE_URL=http://meteo-service:4081
+      - METEO_SERVICE_URL=${METEO_SERVICE_URL:-https://routing.jaclar.net}
+

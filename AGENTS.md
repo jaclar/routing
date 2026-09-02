@@ -65,4 +65,5 @@ services/<service-name>/
 
 ## 6. Git & Version Control Guidelines
 - **Explicit Commits Only**: NEVER run `git commit` or commit any changes unless the user explicitly asks you to commit.
+- **Granular Commits by Service & Feature**: When asked to commit, ALWAYS make separate, focused commits grouped by **service** (e.g., `services/routing`, `services/frontend`, docker/root configs) and **feature/change**, never bundling all workspace changes into one huge commit.
 
