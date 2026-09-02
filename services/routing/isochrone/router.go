@@ -45,6 +45,14 @@ type Waypoint struct {
 	GustKts          float64   `json:"gust_kts,omitempty"`
 	WaveHeightM      float64   `json:"wave_height_m,omitempty"`
 	WavePeriodS      float64   `json:"wave_period_s,omitempty"`
+	ConfidenceScore  float64   `json:"confidence_score,omitempty"`
+	ConfidenceScoreA float64   `json:"confidence_score_a,omitempty"`
+	ConfidenceScoreB float64   `json:"confidence_score_b,omitempty"`
+	WindSpeedStdKts  float64   `json:"wind_speed_std_kts,omitempty"`
+	WindSpeedP10Kts  float64   `json:"wind_speed_p10_kts,omitempty"`
+	WindSpeedP90Kts  float64   `json:"wind_speed_p90_kts,omitempty"`
+	WindDirSpreadDeg float64   `json:"wind_dir_spread_deg,omitempty"`
+	GaleProbability  float64   `json:"gale_probability,omitempty"`
 }
 
 // IsochroneWave represents a single time-frontier line on the map.
@@ -73,6 +81,8 @@ type RouteResult struct {
 	Waypoints          []Waypoint      `json:"waypoints"`
 	Isochrones         []IsochroneWave `json:"isochrones"`
 	DestinationReached bool            `json:"destination_reached"`
+	ModelID            string          `json:"model_id,omitempty"`
+	Confidence         any             `json:"confidence,omitempty"`
 }
 
 // RouterConfig contains tuning parameters for the isochrone propagation.
@@ -193,21 +203,28 @@ func CalculateOptimalRoute(
 
 	step := 0
 	currentTime := startTime
+	// Record isochrones at roughly 1-2 hour intervals to keep memory low and map rendering snappy
+	recordEverySteps := 1
+	if cfg.TimeStep < time.Hour {
+		recordEverySteps = int(math.Max(1, math.Round(float64(time.Hour)/float64(cfg.TimeStep))))
+	}
 
 	for len(frontier) > 0 && currentTime.Sub(startTime).Hours() < maxSearchHours {
 		step++
 		currentTime = currentTime.Add(cfg.TimeStep)
 
-		// 1. Record current isochrone wave for visualization
-		wavePoints := make([]geo.Point, len(frontier))
-		for i, n := range frontier {
-			wavePoints[i] = n.Point
+		// 1. Record current isochrone wave for visualization (sampled)
+		if (step-1)%recordEverySteps == 0 {
+			wavePoints := make([]geo.Point, len(frontier))
+			for i, n := range frontier {
+				wavePoints[i] = n.Point
+			}
+			isochrones = append(isochrones, IsochroneWave{
+				StepIndex: step - 1,
+				Time:      frontier[0].Time,
+				Points:    wavePoints,
+			})
 		}
-		isochrones = append(isochrones, IsochroneWave{
-			StepIndex: step - 1,
-			Time:      frontier[0].Time,
-			Points:    wavePoints,
-		})
 
 		// 2. Check if destination is reached
 		for _, n := range frontier {

@@ -22,5 +22,7 @@ EXPOSE 4080
 ENV PORT=4080
 ENV VPP_SERVICE_URL=http://vpp-service:4001
 ENV METEO_SERVICE_URL=http://meteo-service:4081
+ENV GOMEMLIMIT=500MiB
+ENV GOGC=80
 
 CMD ["/app/routing-server"]

@@ -6,10 +6,13 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/jaclar/routing-service/confidence"
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
 	"github.com/jaclar/routing-service/landmask"
@@ -21,14 +24,20 @@ type Server struct {
 	weatherProvider *weather.MultiModelWeatherProvider
 	landMask        *landmask.LandMask
 	vppClient       *polar.VPPClient
+	confEvaluator   *confidence.Evaluator
 }
 
 func NewServer(vppBaseURL string) *Server {
 	now := time.Now().UTC()
+	meteoURL := strings.TrimRight(strings.TrimSpace(os.Getenv("METEO_SERVICE_URL")), "/")
+	if meteoURL == "" {
+		meteoURL = "https://routing.jaclar.net"
+	}
 	return &Server{
 		weatherProvider: weather.NewMultiModelWeatherProvider(now),
 		landMask:        landmask.NewGSHHGLandMask(),
 		vppClient:       polar.NewVPPClient(vppBaseURL),
+		confEvaluator:   confidence.NewEvaluator(meteoURL, nil),
 	}
 }
 
@@ -159,6 +168,25 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[ERROR] Route calculation failed for model %s: %v", res.modelID, res.err)
 			lastErr = res.err
 		} else if res.route != nil {
+			res.route.ModelID = res.modelID
+			// Evaluate ensemble confidence (Strategy A & Strategy B)
+			conf, confErr := s.confEvaluator.EvaluateRoute(r.Context(), res.route, polarTable, res.modelID)
+			if confErr == nil && conf != nil {
+				res.route.Confidence = conf
+				for i := range res.route.Waypoints {
+					if i < len(conf.Waypoints) {
+						wpC := conf.Waypoints[i]
+						res.route.Waypoints[i].ConfidenceScore = wpC.Score
+						res.route.Waypoints[i].ConfidenceScoreA = wpC.ScoreStrategyA
+						res.route.Waypoints[i].ConfidenceScoreB = wpC.ScoreStrategyB
+						res.route.Waypoints[i].WindSpeedStdKts = wpC.WindSpeedStd
+						res.route.Waypoints[i].WindSpeedP10Kts = wpC.WindSpeedP10
+						res.route.Waypoints[i].WindSpeedP90Kts = wpC.WindSpeedP90
+						res.route.Waypoints[i].WindDirSpreadDeg = wpC.WindDirSpreadDeg
+						res.route.Waypoints[i].GaleProbability = wpC.GaleProbability
+					}
+				}
+			}
 			routesMap[res.modelID] = res.route
 			if firstRoute == nil || res.modelID == weather.ModelGFS025 {
 				firstRoute = res.route
@@ -306,6 +334,9 @@ func (s *Server) HandleLandmaskPolygons(w http.ResponseWriter, r *http.Request) 
 	}
 
 	polys := s.landMask.GetPolygonsInRegion(minLat, maxLat, minLon, maxLon)
+	if len(polys) > 1500 {
+		polys = polys[:1500]
+	}
 	resp := LandmaskResponse{
 		Polygons: polys,
 	}

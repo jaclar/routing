@@ -23,7 +23,7 @@ type MultiModelWeatherProvider struct {
 
 // NewMultiModelWeatherProvider creates a manager that instantiates and caches model-specific weather engines.
 func NewMultiModelWeatherProvider(startTime time.Time) *MultiModelWeatherProvider {
-	baseURL := strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "http://localhost:4081")), "/")
+	baseURL := strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "https://routing.jaclar.net")), "/")
 
 	m := &MultiModelWeatherProvider{
 		apiBaseURL: baseURL,
@@ -88,7 +88,7 @@ type OpenMeteoPointResponse struct {
 // NewLiveWeatherEngine initializes a model-specific weather provider.
 func NewLiveWeatherEngine(modelID string, startTime time.Time, apiBaseURL string) *LiveWeatherEngine {
 	if apiBaseURL == "" {
-		apiBaseURL = strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "http://localhost:4081")), "/")
+		apiBaseURL = strings.TrimRight(strings.TrimSpace(getEnv("METEO_SERVICE_URL", "https://routing.jaclar.net")), "/")
 	}
 
 	return &LiveWeatherEngine{
@@ -134,6 +134,15 @@ func (e *LiveWeatherEngine) buildEndpoint(latsStr, lonsStr string) string {
 			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
 	case ModelICONGlobal:
 		return fmt.Sprintf("%s/v1/dwd-icon?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
+	case ModelGEFS050:
+		return fmt.Sprintf("%s/v1/gefs?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
+	case ModelIFSEns025:
+		return fmt.Sprintf("%s/v1/ifs-ens?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
+			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
+	case ModelICONEPS:
+		return fmt.Sprintf("%s/v1/icon-eps?latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
 			e.apiBaseURL, latsStr, lonsStr, e.forecastDays)
 	default:
 		return fmt.Sprintf("%s/v1/forecast?models=%s&latitude=%s&longitude=%s&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&forecast_days=%d",
@@ -290,6 +299,19 @@ func (e *LiveWeatherEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 
 	cacheKey := fmt.Sprintf("%.1f_%.1f_%.1f_%.1f", minLat, maxLat, minLon, maxLon)
 	e.mu.Lock()
+	if len(e.grids) >= 4 {
+		var oldestKey string
+		var oldestTime time.Time
+		for k, cg := range e.grids {
+			if oldestKey == "" || cg.fetchedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = cg.fetchedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(e.grids, oldestKey)
+		}
+	}
 	e.grids[cacheKey] = &cachedGrid{
 		grid:      grid,
 		fetchedAt: time.Now().UTC(),
