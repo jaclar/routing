@@ -797,6 +797,199 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
         </div>
       )}
 
+      {/* Ensemble Confidence & Predictability Analysis Card */}
+      {routeResult.confidence && (
+        <div className="stats-table-section">
+          <div className="table-card ensemble-confidence-card">
+            <div className="table-card-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Shield size={18} className="text-accent" />
+                <h3>Ensemble Confidence &amp; Predictability Analysis ({routeResult.confidence.num_members > 1 ? `${routeResult.confidence.num_members}-Member Ensemble` : 'Weather Telemetry'})</h3>
+              </div>
+              <span
+                className="confidence-badge-category"
+                style={{
+                  backgroundColor:
+                    routeResult.confidence.overall_score >= 75
+                      ? 'rgba(16, 185, 129, 0.2)'
+                      : routeResult.confidence.overall_score >= 50
+                      ? 'rgba(234, 179, 8, 0.2)'
+                      : 'rgba(239, 68, 68, 0.2)',
+                  color:
+                    routeResult.confidence.overall_score >= 75
+                      ? '#34d399'
+                      : routeResult.confidence.overall_score >= 50
+                      ? '#facc15'
+                      : '#f87171',
+                  border: `1px solid ${
+                    routeResult.confidence.overall_score >= 75
+                      ? 'rgba(52, 211, 153, 0.4)'
+                      : routeResult.confidence.overall_score >= 50
+                      ? 'rgba(250, 204, 21, 0.4)'
+                      : 'rgba(248, 113, 113, 0.4)'
+                  }`,
+                  padding: '3px 10px',
+                  borderRadius: '12px',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                }}
+              >
+                {routeResult.confidence.category} ({routeResult.confidence.overall_score.toFixed(0)}%)
+              </span>
+            </div>
+
+            <div className="confidence-overview-grid">
+              {/* Overall Score Box */}
+              <div className="confidence-metric-box main-score-box">
+                <span className="confidence-box-title">Overall Route Confidence</span>
+                <div className="confidence-large-dial">
+                  <span
+                    className="confidence-dial-number"
+                    style={{
+                      color:
+                        routeResult.confidence.overall_score >= 75
+                          ? '#34d399'
+                          : routeResult.confidence.overall_score >= 50
+                          ? '#facc15'
+                          : '#f87171',
+                    }}
+                  >
+                    {routeResult.confidence.overall_score.toFixed(0)}%
+                  </span>
+                  <span className="confidence-dial-sub">Integrated Predictability</span>
+                </div>
+                <div className="confidence-meter-bar">
+                  <div
+                    className="confidence-meter-fill"
+                    style={{
+                      width: `${routeResult.confidence.overall_score}%`,
+                      backgroundColor:
+                        routeResult.confidence.overall_score >= 75
+                          ? '#10b981'
+                          : routeResult.confidence.overall_score >= 50
+                          ? '#eab308'
+                          : '#ef4444',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Strategy A: Statistical Model Box */}
+              <div className="confidence-metric-box">
+                <div className="confidence-box-header">
+                  <span className="confidence-box-title">Strategy A: Statistical Model</span>
+                  <span className="conf-strat-pill pill-strat-a">{routeResult.confidence.score_strategy_a.toFixed(0)}%</span>
+                </div>
+                <p className="confidence-box-desc">Theoretical error propagation from 3D NWP dispersion & polar gradients</p>
+                {routeResult.confidence.statistical_comparison ? (
+                  <div className="strat-metrics-list">
+                    <div className="strat-metric-row">
+                      <span>Theoretical Mean Duration:</span>
+                      <strong>{routeResult.confidence.statistical_comparison.mean_duration_hours.toFixed(1)}h (±{routeResult.confidence.statistical_comparison.std_duration_hours.toFixed(1)}h)</strong>
+                    </div>
+                    <div className="strat-metric-row">
+                      <span>P10 ↔ P90 Expected Window:</span>
+                      <strong>{routeResult.confidence.statistical_comparison.min_duration_hours.toFixed(1)}h – {routeResult.confidence.statistical_comparison.max_duration_hours.toFixed(1)}h</strong>
+                    </div>
+                    <div className="strat-metric-row">
+                      <span>Interquartile Spread (IQR):</span>
+                      <strong>{routeResult.confidence.statistical_comparison.iqr_duration_hours.toFixed(1)}h</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="strat-metrics-list">
+                    <div className="strat-metric-row">
+                      <span>Avg Wind Spread:</span>
+                      <strong>±{(routeResult.waypoints.reduce((acc, w) => acc + (w.wind_speed_std_kts ?? 1.5), 0) / routeResult.waypoints.length).toFixed(1)} kts</strong>
+                    </div>
+                    <div className="strat-metric-row">
+                      <span>Avg Directional Spread:</span>
+                      <strong>±{(routeResult.waypoints.reduce((acc, w) => acc + (w.wind_dir_spread_deg ?? 8), 0) / routeResult.waypoints.length).toFixed(0)}°</strong>
+                    </div>
+                    <div className="strat-metric-row">
+                      <span>Gale Exceedance Peak:</span>
+                      <strong>{Math.max(...routeResult.waypoints.map(w => (w.gale_probability ?? 0) * 100)).toFixed(0)}%</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Strategy B: 4D Forward Simulation Box */}
+              <div className="confidence-metric-box">
+                <div className="confidence-box-header">
+                  <span className="confidence-box-title">Strategy B: Full 4D Member Sim</span>
+                  <span className="conf-strat-pill pill-strat-b">{routeResult.confidence.score_strategy_b.toFixed(0)}%</span>
+                </div>
+                <p className="confidence-box-desc">{routeResult.confidence.num_members}-member forward polar trajectory integration</p>
+                {routeResult.confidence.ensemble_comparison && (
+                  <div className="strat-metrics-list">
+                    <div className="strat-metric-row">
+                      <span>Simulated Mean Duration:</span>
+                      <strong>{routeResult.confidence.ensemble_comparison.mean_duration_hours.toFixed(1)}h (±{routeResult.confidence.ensemble_comparison.std_duration_hours.toFixed(1)}h)</strong>
+                    </div>
+                    <div className="strat-metric-row">
+                      <span>Fastest ↔ Slowest Member:</span>
+                      <strong>{routeResult.confidence.ensemble_comparison.min_duration_hours.toFixed(1)}h – {routeResult.confidence.ensemble_comparison.max_duration_hours.toFixed(1)}h</strong>
+                    </div>
+                    <div className="strat-metric-row">
+                      <span>Interquartile Spread (IQR):</span>
+                      <strong>{routeResult.confidence.ensemble_comparison.iqr_duration_hours.toFixed(1)}h</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Strategy Agreement Box */}
+              <div className="confidence-metric-box agreement-box">
+                <span className="confidence-box-title">Model Agreement Rating</span>
+                <div className="agreement-val-display">
+                  <span className="agreement-pct" style={{ color: routeResult.confidence.agreement_score >= 80 ? '#38bdf8' : '#fbbf24' }}>
+                    {routeResult.confidence.agreement_score.toFixed(0)}%
+                  </span>
+                  <span className="agreement-sub">Cross-Correlation</span>
+                </div>
+                <p className="agreement-desc">
+                  {routeResult.confidence.agreement_score >= 80
+                    ? 'High consistency between statistical and forward ensemble members.'
+                    : 'Moderate divergence in non-linear polar routing responses.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Member Outcomes Mini Table / Dispersion Visualizer */}
+            {routeResult.confidence.ensemble_comparison && routeResult.confidence.ensemble_comparison.members && routeResult.confidence.ensemble_comparison.members.length > 1 && (
+              <div className="ensemble-members-dispersion-section">
+                <h4 className="members-dispersion-title">Ensemble Member Arrival Time Distribution (Fastest to Slowest)</h4>
+                <div className="members-dispersion-bars">
+                  {routeResult.confidence.ensemble_comparison.members.slice(0, 15).map((m) => {
+                    const minD = routeResult.confidence?.ensemble_comparison?.min_duration_hours || 1;
+                    const maxD = routeResult.confidence?.ensemble_comparison?.max_duration_hours || (minD + 1);
+                    const range = Math.max(0.1, maxD - minD);
+                    const pct = Math.min(100, Math.max(8, ((m.total_duration_hours - minD) / range) * 100));
+
+                    return (
+                      <div key={m.member_id} className="member-dispersion-row" title={`Member #${m.member_id + 1}: ${m.total_duration_hours.toFixed(1)}h, Avg SOG: ${m.average_speed_kts.toFixed(1)} kts, Peak Wind: ${m.max_wind_kts.toFixed(1)} kts`}>
+                        <span className="member-id-label">M{String(m.member_id + 1).padStart(2, '0')}</span>
+                        <div className="member-bar-track">
+                          <div
+                            className="member-bar-fill"
+                            style={{
+                              width: `${pct}%`,
+                              backgroundColor: pct < 40 ? '#38bdf8' : pct < 75 ? '#818cf8' : '#c084fc',
+                            }}
+                          />
+                        </div>
+                        <span className="member-dur-val">{m.total_duration_hours.toFixed(1)}h</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Required Statistics Table */}
       <div className="stats-table-section">
         <div className="table-card">
