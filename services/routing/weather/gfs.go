@@ -137,9 +137,9 @@ func NewRealisticGFSEngine(startTime time.Time) *GFSWeatherEngine {
 					vHigh += -str * math.Cos(ang)
 				}
 
-				// Combine atmospheric components
-				uTotal := uBase + uLow + uHigh
-				vTotal := vBase + vLow + vHigh
+				// Combine atmospheric components (converting knots to m/s for grid storage)
+				uTotal := (uBase + uLow + uHigh) * KnotsToMS
+				vTotal := (vBase + vLow + vHigh) * KnotsToMS
 
 				grid.UData[tIdx][i][j] = uTotal
 				grid.VData[tIdx][i][j] = vTotal
@@ -154,7 +154,7 @@ func (e *GFSWeatherEngine) GetWind(lat, lon float64, t time.Time) WindCondition 
 	return e.grid.Interpolate(lat, lon, t)
 }
 
-func (e *GFSWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) [][]WindCondition {
+func (e *GFSWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) ([][]WindCondition, error) {
 	nLat := int(math.Round((maxLat-minLat)/latStep)) + 1
 	nLon := int(math.Round((maxLon-minLon)/lonStep)) + 1
 
@@ -167,5 +167,5 @@ func (e *GFSWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonS
 			res[i][j] = e.GetWind(lat, lon, t)
 		}
 	}
-	return res
+	return res, nil
 }

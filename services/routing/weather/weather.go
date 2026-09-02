@@ -80,7 +80,7 @@ func UVToWindCondition(u, v float64) WindCondition {
 // WeatherProvider is the interface for sampling wind fields anywhere on Earth and across time.
 type WeatherProvider interface {
 	GetWind(lat, lon float64, t time.Time) WindCondition
-	GetGrid(minLat, maxLat, minLon, maxLon float64, latStep, lonStep float64, t time.Time) [][]WindCondition
+	GetGrid(minLat, maxLat, minLon, maxLon float64, latStep, lonStep float64, t time.Time) ([][]WindCondition, error)
 }
 
 // WeatherGrid represents a structured 4D regular grid of wind forecasts.

@@ -63,7 +63,6 @@ type LiveWeatherEngine struct {
 	mu           sync.RWMutex
 	modelID      string
 	grids        map[string]*cachedGrid
-	fallback     *GFSWeatherEngine
 	httpClient   *http.Client
 	forecastDays int
 	apiBaseURL   string
@@ -94,9 +93,8 @@ func NewLiveWeatherEngine(modelID string, startTime time.Time, apiBaseURL string
 	return &LiveWeatherEngine{
 		modelID:  modelID,
 		grids:    make(map[string]*cachedGrid),
-		fallback: NewRealisticGFSEngine(startTime),
 		httpClient: &http.Client{
-			Timeout: 6 * time.Second,
+			Timeout: 15 * time.Second,
 		},
 		forecastDays: 16,
 		apiBaseURL:   apiBaseURL,
@@ -221,6 +219,14 @@ func (e *LiveWeatherEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 	nLat := int(math.Round(latSpan/latStep)) + 1
 	nLon := int(math.Round(lonSpan/lonStep)) + 1
 
+	// Adaptively increase grid resolution steps to keep total requested points <= 120
+	for (nLat * nLon) > 120 {
+		latStep *= 1.2
+		lonStep *= 1.2
+		nLat = int(math.Round(latSpan/latStep)) + 1
+		nLon = int(math.Round(lonSpan/lonStep)) + 1
+	}
+
 	if nLat <= 0 || nLon <= 0 {
 		return nil, fmt.Errorf("invalid grid dimensions (%d x %d)", nLat, nLon)
 	}
@@ -326,36 +332,148 @@ func (e *LiveWeatherEngine) FetchRegion(minLat, maxLat, minLon, maxLon float64, 
 // GetWind samples wind condition at arbitrary latitude, longitude, and time.
 func (e *LiveWeatherEngine) GetWind(lat, lon float64, t time.Time) WindCondition {
 	e.mu.RLock()
+	defer e.mu.RUnlock()
 	for _, cg := range e.grids {
 		g := cg.grid
 		if lat >= g.MinLat && lat <= g.MaxLat && lon >= g.MinLon && lon <= g.MaxLon {
-			res := g.Interpolate(lat, lon, t)
-			e.mu.RUnlock()
-			return res
+			return g.Interpolate(lat, lon, t)
 		}
 	}
-	e.mu.RUnlock()
 
-	return e.fallback.GetWind(lat, lon, t)
+	return WindCondition{}
 }
 
 // GetGrid extracts a 2D wind slice across a lat/lon domain at time t.
-func (e *LiveWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) [][]WindCondition {
+func (e *LiveWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) ([][]WindCondition, error) {
 	grid, err := e.FetchRegion(minLat, maxLat, minLon, maxLon, latStep, lonStep)
-	if err == nil && grid != nil {
-		nLat := int(math.Round((maxLat-minLat)/latStep)) + 1
-		nLon := int(math.Round((maxLon-minLon)/lonStep)) + 1
-		res := make([][]WindCondition, nLat)
-		for i := 0; i < nLat; i++ {
-			lat := minLat + float64(i)*latStep
-			res[i] = make([]WindCondition, nLon)
-			for j := 0; j < nLon; j++ {
-				lon := minLon + float64(j)*lonStep
-				res[i][j] = grid.Interpolate(lat, lon, t)
-			}
-		}
-		return res
+	if err != nil || grid == nil {
+		return nil, fmt.Errorf("live weather grid unavailable for %s: %w", e.modelID, err)
 	}
 
-	return e.fallback.GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep, t)
+	nLat := int(math.Round((maxLat-minLat)/latStep)) + 1
+	nLon := int(math.Round((maxLon-minLon)/lonStep)) + 1
+	res := make([][]WindCondition, nLat)
+	for i := 0; i < nLat; i++ {
+		lat := minLat + float64(i)*latStep
+		res[i] = make([]WindCondition, nLon)
+		for j := 0; j < nLon; j++ {
+			lon := minLon + float64(j)*lonStep
+			res[i][j] = grid.Interpolate(lat, lon, t)
+		}
+	}
+	return res, nil
+}
+
+// MemberWeatherEngine wraps an individual ensemble member's 4D WeatherGrid and implements WeatherProvider.
+type MemberWeatherEngine struct {
+	MemberID int
+	Grid     *WeatherGrid
+}
+
+func NewMemberWeatherEngine(memberID int, grid *WeatherGrid) *MemberWeatherEngine {
+	return &MemberWeatherEngine{
+		MemberID: memberID,
+		Grid:     grid,
+	}
+}
+
+func (e *MemberWeatherEngine) GetWind(lat, lon float64, t time.Time) WindCondition {
+	if e.Grid == nil {
+		return WindCondition{}
+	}
+	return e.Grid.Interpolate(lat, lon, t)
+}
+
+func (e *MemberWeatherEngine) GetGrid(minLat, maxLat, minLon, maxLon, latStep, lonStep float64, t time.Time) ([][]WindCondition, error) {
+	if e.Grid == nil {
+		return nil, fmt.Errorf("member grid unavailable for member %d", e.MemberID)
+	}
+	nLat := int(math.Round((maxLat-minLat)/latStep)) + 1
+	nLon := int(math.Round((maxLon-minLon)/lonStep)) + 1
+	res := make([][]WindCondition, nLat)
+	for i := 0; i < nLat; i++ {
+		lat := minLat + float64(i)*latStep
+		res[i] = make([]WindCondition, nLon)
+		for j := 0; j < nLon; j++ {
+			lon := minLon + float64(j)*lonStep
+			res[i][j] = e.Grid.Interpolate(lat, lon, t)
+		}
+	}
+	return res, nil
+}
+
+// GenerateEnsembleMemberGrids generates N dedicated 4D WeatherGrid instances representing individual ensemble members.
+func GenerateEnsembleMemberGrids(baseGrid *WeatherGrid, numMembers int) []*WeatherGrid {
+	if baseGrid == nil || numMembers <= 0 {
+		return nil
+	}
+
+	nTime := len(baseGrid.Timestamps)
+	if nTime == 0 {
+		return nil
+	}
+	nLat := len(baseGrid.UData[0])
+	nLon := len(baseGrid.UData[0][0])
+	startTime := baseGrid.Timestamps[0]
+
+	memberGrids := make([]*WeatherGrid, numMembers)
+	for m := 0; m < numMembers; m++ {
+		mg := NewWeatherGrid(
+			baseGrid.MinLat,
+			baseGrid.MaxLat,
+			baseGrid.LatStep,
+			baseGrid.MinLon,
+			baseGrid.MaxLon,
+			baseGrid.LonStep,
+			baseGrid.Timestamps,
+		)
+
+		var mPerturb float64
+		if numMembers > 1 {
+			mPerturb = (float64(m) - float64(numMembers-1)/2.0) / (float64(numMembers-1) / 2.0)
+		}
+
+		for tIdx, t := range baseGrid.Timestamps {
+			leadHours := t.Sub(startTime).Hours()
+			if leadHours < 0 {
+				leadHours = 0
+			}
+			// Dispersion growth with lead time
+			cvEst := 0.08 + 0.003*leadHours
+			if cvEst > 0.40 {
+				cvEst = 0.40
+			}
+			dirSpreadDeg := math.Min(40.0, 4.0+0.16*leadHours)
+
+			for i := 0; i < nLat; i++ {
+				for j := 0; j < nLon; j++ {
+					baseU := baseGrid.UData[tIdx][i][j]
+					baseV := baseGrid.VData[tIdx][i][j]
+					baseSpeedMS := math.Hypot(baseU, baseV)
+					baseSpeedKts := baseSpeedMS * MSToKnots
+
+					baseDirDeg := math.Atan2(-baseU, -baseV) * 180.0 / math.Pi
+					if baseDirDeg < 0 {
+						baseDirDeg += 360.0
+					}
+
+					mSpeedKts := baseSpeedKts * (1.0 + mPerturb*cvEst)
+					if mSpeedKts < 1.0 {
+						mSpeedKts = 1.0
+					}
+
+					mDirDeg := baseDirDeg + mPerturb*dirSpreadDeg*0.7
+					mDirRad := mDirDeg * math.Pi / 180.0
+
+					mSpeedMS := mSpeedKts * KnotsToMS
+					mg.UData[tIdx][i][j] = -mSpeedMS * math.Sin(mDirRad)
+					mg.VData[tIdx][i][j] = -mSpeedMS * math.Cos(mDirRad)
+				}
+			}
+		}
+
+		memberGrids[m] = mg
+	}
+
+	return memberGrids
 }
