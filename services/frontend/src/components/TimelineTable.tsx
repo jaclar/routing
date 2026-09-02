@@ -24,6 +24,7 @@ interface TimelineColumnData {
   relWindDeg: number;
   tack: 'Stbd' | 'Port';
   waypointIndex: number;
+  confidenceScore: number;
 }
 
 const COLUMN_WIDTH_PX = 60;
@@ -265,6 +266,8 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
       const dayOffset = Math.floor(targetElapsed / 24);
       const dayOffsetStr = dayOffset > 0 ? `D${dayOffset + 1}` : '';
 
+      const wpConf = routeResult.waypoints[closestWpIdx]?.confidence_score ?? 85;
+
       cols.push({
         stepIndex: s,
         elapsedHours: targetElapsed,
@@ -282,6 +285,7 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
         relWindDeg,
         tack,
         waypointIndex: closestWpIdx,
+        confidenceScore: wpConf,
       });
 
       if (targetElapsed >= totalDuration) {
@@ -359,6 +363,10 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
           <span>TWA</span>
           <span className="unit-sub">°</span>
         </div>
+        <div className="timeline-label-cell label-conf">
+          <span>CONF</span>
+          <span className="unit-sub">%</span>
+        </div>
       </div>
 
       {/* Horizontally Scrollable Data Viewport */}
@@ -381,11 +389,11 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
               const gustColor = getWindColor(col.gustKts);
               const waveColor = getWaveIntensityColor(col.waveHeightM, col.wavePeriodS);
               const posColor = getPointOfSailColor(col.twaDeg);
-              // Relative wind flow arrow over deck (Bow is to the left):
-              // 0° (Headwind from Bow on Left) -> flow to Right (0°)
-              // +90° (Starboard Beam from Top) -> flow to Bottom (+90°)
-              // 180° (Downwind from Stern on Right) -> flow to Left (180°)
-              // -90° (Port Beam from Bottom) -> flow to Top (-90°)
+              const confColor = col.confidenceScore >= 75 ? '#34d399' : col.confidenceScore >= 50 ? '#facc15' : '#f87171';
+              const confBg = col.confidenceScore >= 75 ? 'rgba(16, 185, 129, 0.18)' : col.confidenceScore >= 50 ? 'rgba(234, 179, 8, 0.18)' : 'rgba(239, 68, 68, 0.18)';
+              const confBorder = col.confidenceScore >= 75 ? 'rgba(52, 211, 153, 0.4)' : col.confidenceScore >= 50 ? 'rgba(250, 204, 21, 0.4)' : 'rgba(248, 113, 113, 0.4)';
+
+              // Relative wind flow arrow over deck (Bow is to the left)
               const windFlowAngle = col.relWindDeg;
 
               return (
@@ -394,7 +402,7 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
                   className={`timeline-col ${isActive ? 'col-active' : ''}`}
                   style={{ width: `${COLUMN_WIDTH_PX}px` }}
                   onClick={() => onIndexChange(col.waypointIndex)}
-                  title={`+${col.elapsedHours.toFixed(1)}h (${col.clockTime} UTC)\nWind: ${Math.round(col.twsKts)} kts (Gust: ${Math.round(col.gustKts)} kts) @ ${col.twdDeg.toFixed(0)}°\nBoat: ${col.boatSpeedKts.toFixed(1)} kts\nWave: ${col.waveHeightM.toFixed(1)}m @ ${Math.round(col.wavePeriodS)}s\nTWA: ${col.twaDeg.toFixed(0)}° (${col.tack})`}
+                  title={`+${col.elapsedHours.toFixed(1)}h (${col.clockTime} UTC)\nConfidence: ${Math.round(col.confidenceScore)}%\nWind: ${Math.round(col.twsKts)} kts (Gust: ${Math.round(col.gustKts)} kts) @ ${col.twdDeg.toFixed(0)}°\nBoat: ${col.boatSpeedKts.toFixed(1)} kts\nWave: ${col.waveHeightM.toFixed(1)}m @ ${Math.round(col.wavePeriodS)}s\nTWA: ${col.twaDeg.toFixed(0)}° (${col.tack})`}
                 >
                   {/* Row 1: Time Passed in Sail + Clock Time */}
                   <div className="timeline-data-cell cell-time">
@@ -472,6 +480,20 @@ export const TimelineTable: React.FC<TimelineTableProps> = ({
                         {Math.round(col.twaDeg)}°
                       </span>
                     </div>
+                  </div>
+
+                  {/* Row 6: Confidence Badge (%) */}
+                  <div className="timeline-data-cell cell-conf">
+                    <span
+                      className="conf-score-badge"
+                      style={{
+                        backgroundColor: confBg,
+                        color: confColor,
+                        borderColor: confBorder,
+                      }}
+                    >
+                      {Math.round(col.confidenceScore)}%
+                    </span>
                   </div>
                 </div>
               );

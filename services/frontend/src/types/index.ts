@@ -166,6 +166,68 @@ export interface WeatherGridResponse {
   grid: WindCondition[][];
 }
 
+export interface MemberOutcome {
+  member_id: number;
+  total_duration_hours: number;
+  average_speed_kts: number;
+  max_wind_kts: number;
+  trajectory?: Point[];
+}
+
+export interface EnsembleComparison {
+  mean_duration_hours: number;
+  std_duration_hours: number;
+  min_duration_hours: number;
+  max_duration_hours: number;
+  iqr_duration_hours: number;
+  p10_duration_hours: number;
+  p90_duration_hours: number;
+  fastest_member_id: number;
+  slowest_member_id: number;
+  member_count: number;
+  members?: MemberOutcome[];
+}
+
+export interface WaypointConfidence {
+  index: number;
+  time: string;
+  score: number;
+  score_strategy_a: number;
+  score_strategy_b: number;
+  wind_speed_mean_kts: number;
+  wind_speed_std_kts: number;
+  wind_speed_p10_kts: number;
+  wind_speed_p90_kts: number;
+  wind_dir_spread_deg: number;
+  gale_probability: number;
+  strong_wind_probability: number;
+  member_speed_mean_kts: number;
+  member_speed_std_kts: number;
+  member_speed_p10_kts: number;
+  member_speed_p90_kts: number;
+}
+
+export interface StatisticalComparison {
+  mean_duration_hours: number;
+  std_duration_hours: number;
+  min_duration_hours: number;
+  max_duration_hours: number;
+  iqr_duration_hours: number;
+}
+
+export interface RouteConfidence {
+  overall_score: number;
+  category: 'Very High' | 'High' | 'Moderate' | 'Low' | 'High Uncertainty' | string;
+  score_strategy_a: number;
+  score_strategy_b: number;
+  agreement_score: number;
+  model_id: string;
+  num_members: number;
+  waypoints: WaypointConfidence[];
+  statistical_comparison?: StatisticalComparison;
+  ensemble_comparison?: EnsembleComparison;
+}
+
 export interface Waypoint {
   lat: number;
   lon: number;
@@ -182,6 +244,14 @@ export interface Waypoint {
   gust_kts?: number;
   wave_height_m?: number;
   wave_period_s?: number;
+  confidence_score?: number;
+  confidence_score_a?: number;
+  confidence_score_b?: number;
+  wind_speed_std_kts?: number;
+  wind_speed_p10_kts?: number;
+  wind_speed_p90_kts?: number;
+  wind_dir_spread_deg?: number;
+  gale_probability?: number;
 }
 
 export interface IsochroneWave {
@@ -209,6 +279,7 @@ export interface RouteResult {
   isochrones: IsochroneWave[];
   destination_reached: boolean;
   model_id?: WeatherModelId;
+  confidence?: RouteConfidence;
 }
 
 export type MultiRouteResult = Record<string, RouteResult>;

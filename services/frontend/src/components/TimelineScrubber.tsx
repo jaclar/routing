@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MultiRouteResult, RouteResult, WEATHER_MODELS, WeatherModelId } from '../types';
 import { TimelineTable } from './TimelineTable';
 import {
@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Check,
   Share2,
+  Shield,
 } from 'lucide-react';
 
 export type AnimationSpeed = 0.5 | 1 | 2;
@@ -86,6 +87,29 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   currentIndexRef.current = currentIndex;
   isPlayingRef.current = isPlaying;
   durationSecRef.current = durationSec;
+
+  const confidenceGradient = useMemo(() => {
+    if (!routeResult || !routeResult.waypoints || routeResult.waypoints.length === 0) {
+      return 'linear-gradient(to right, #10b981, #eab308)';
+    }
+    const wps = routeResult.waypoints;
+    const n = wps.length;
+    const stops: string[] = [];
+    const step = Math.max(1, Math.floor(n / 20));
+
+    for (let i = 0; i < n; i += step) {
+      const wp = wps[i];
+      const score = wp.confidence_score ?? 85;
+      const pct = ((i / (n - 1)) * 100).toFixed(1);
+      const color = score >= 75 ? '#10b981' : score >= 50 ? '#eab308' : '#ef4444';
+      stops.push(`${color} ${pct}%`);
+    }
+    const lastScore = wps[n - 1].confidence_score ?? 85;
+    const lastColor = lastScore >= 75 ? '#10b981' : lastScore >= 50 ? '#eab308' : '#ef4444';
+    stops.push(`${lastColor} 100%`);
+
+    return `linear-gradient(to right, ${stops.join(', ')})`;
+  }, [routeResult]);
 
   const normalizeTimeStr = (t?: string) => {
     if (!t) return '';
@@ -281,6 +305,13 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
     );
   }
 
+  const currentWaypoint = routeResult?.waypoints[currentIndex] || routeResult?.waypoints[0];
+
+  const currentConfScore = currentWaypoint?.confidence_score ?? 85;
+  const currentConfColor = currentConfScore >= 75 ? '#34d399' : currentConfScore >= 50 ? '#facc15' : '#f87171';
+  const currentConfBg = currentConfScore >= 75 ? 'rgba(16, 185, 129, 0.15)' : currentConfScore >= 50 ? 'rgba(234, 179, 8, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+  const currentConfBorder = currentConfScore >= 75 ? 'rgba(52, 211, 153, 0.35)' : currentConfScore >= 50 ? 'rgba(250, 204, 21, 0.35)' : 'rgba(248, 113, 113, 0.35)';
+
   // Active Route Scrubber View
   return (
     <div className="timeline-bar mobile-bottom-sheet">
@@ -307,18 +338,25 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
           <SkipBack size={18} />
         </button>
 
-        {/* Timeline Slider */}
-        <input
-          type="range"
-          min={0}
-          max={totalWaypoints - 1}
-          value={currentIndex}
-          onChange={(e) => {
-            setIsPlaying(false);
-            onIndexChange(parseInt(e.target.value, 10));
-          }}
-          className="timeline-slider"
-        />
+        {/* Timeline Slider with Ensemble Confidence Track */}
+        <div className="timeline-slider-wrapper">
+          <input
+            type="range"
+            min={0}
+            max={totalWaypoints - 1}
+            value={currentIndex}
+            onChange={(e) => {
+              setIsPlaying(false);
+              onIndexChange(parseInt(e.target.value, 10));
+            }}
+            className="timeline-slider"
+          />
+          <div
+            className="confidence-slider-track"
+            style={{ background: confidenceGradient }}
+            title="Ensemble Predictability Gradient (Green = High Confidence, Yellow = Moderate, Red = High Uncertainty)"
+          />
+        </div>
 
         {/* Skip to Destination */}
         <button
@@ -331,6 +369,24 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
         >
           <SkipForward size={18} />
         </button>
+
+        {/* Live Waypoint Confidence Pill */}
+        {currentWaypoint && (
+          <div
+            className="waypoint-confidence-pill"
+            style={{
+              backgroundColor: currentConfBg,
+              borderColor: currentConfBorder,
+            }}
+            title={`Waypoint Predictability: ${currentConfScore.toFixed(0)}%\n• Strategy A (Statistical): ${(currentWaypoint.confidence_score_a ?? currentConfScore).toFixed(0)}%\n• Strategy B (Member Sim): ${(currentWaypoint.confidence_score_b ?? currentConfScore).toFixed(0)}%\n• Wind Speed Spread: ±${(currentWaypoint.wind_speed_std_kts ?? 1.5).toFixed(1)} kt (P10: ${(currentWaypoint.wind_speed_p10_kts ?? currentWaypoint.tws_kts).toFixed(1)}k, P90: ${(currentWaypoint.wind_speed_p90_kts ?? currentWaypoint.tws_kts).toFixed(1)}k)\n• Wind Direction Spread: ±${(currentWaypoint.wind_dir_spread_deg ?? 8).toFixed(0)}°\n• Gale Risk: ${((currentWaypoint.gale_probability ?? 0) * 100).toFixed(0)}%`}
+          >
+            <Shield size={13} color={currentConfColor} />
+            <span className="confidence-score-val" style={{ color: currentConfColor }}>
+              {currentConfScore.toFixed(0)}%
+            </span>
+            <span className="confidence-score-label">Conf</span>
+          </div>
+        )}
 
         {/* Desktop Speed Switcher (.5x, 1x, 2x) */}
         <div className="speed-controls-group desktop-only-control">
