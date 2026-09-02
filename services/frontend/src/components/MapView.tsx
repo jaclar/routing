@@ -240,6 +240,7 @@ export const MapView: React.FC<MapViewProps> = ({
     windGroup?: L.FeatureGroup;
     landmaskGroup?: L.FeatureGroup;
     multiRouteGroup?: L.FeatureGroup;
+    ensembleGroup?: L.FeatureGroup;
     windHeatmapOverlay?: L.ImageOverlay;
   }>({});
 
@@ -269,6 +270,7 @@ export const MapView: React.FC<MapViewProps> = ({
       }
     ).addTo(map);
 
+    layersRef.current.ensembleGroup = L.featureGroup().addTo(map);
     layersRef.current.isochroneGroup = L.featureGroup().addTo(map);
     layersRef.current.multiRouteGroup = L.featureGroup().addTo(map);
     layersRef.current.windGroup = L.featureGroup().addTo(map);
@@ -481,10 +483,12 @@ export const MapView: React.FC<MapViewProps> = ({
     const map = mapRef.current;
     const group = layersRef.current.multiRouteGroup;
     const isoGroup = layersRef.current.isochroneGroup;
+    const ensGroup = layersRef.current.ensembleGroup;
     if (!map || !group || !isoGroup) return;
 
     group.clearLayers();
     isoGroup.clearLayers();
+    ensGroup?.clearLayers();
 
     // Prepare dictionary of routes to display
     const routesToDisplay: Record<string, RouteResult> = {};
@@ -514,11 +518,11 @@ export const MapView: React.FC<MapViewProps> = ({
       const routeCoords = r.waypoints.map((wp) => [wp.lat, wp.lon] as [number, number]);
       allCoords.push(...routeCoords);
 
-      // A. Draw Route Polyline
+      // A. Draw Route Polyline (Active route is vibrant colored; alternate routes are grey lines)
       const polyline = L.polyline(routeCoords, {
-        color: meta.color,
-        weight: isActive ? 4.8 : 3.0,
-        opacity: isActive ? 0.95 : 0.70,
+        color: isActive ? meta.color : '#64748b',
+        weight: isActive ? 4.8 : 2.8,
+        opacity: isActive ? 0.95 : 0.75,
         dashArray: isActive ? undefined : '6, 6',
         lineCap: 'round',
         lineJoin: 'round',
@@ -526,6 +530,22 @@ export const MapView: React.FC<MapViewProps> = ({
 
       if (isActive) {
         polyline.bringToFront();
+      } else {
+        // Interactive hover highlights the grey line in model color
+        polyline.on('mouseover', () => {
+          polyline.setStyle({
+            color: meta.lightColor,
+            weight: 3.8,
+            opacity: 0.95,
+          });
+        });
+        polyline.on('mouseout', () => {
+          polyline.setStyle({
+            color: '#64748b',
+            weight: 2.8,
+            opacity: 0.75,
+          });
+        });
       }
 
       // Interactive Tooltip & Click-to-Select
@@ -550,9 +570,55 @@ export const MapView: React.FC<MapViewProps> = ({
         });
       }
 
+      // B. Draw Ensemble Member Trajectories (Grey Spaghetti Plot)
+      if (isActive && r.confidence?.ensemble_comparison?.members) {
+        r.confidence.ensemble_comparison.members.forEach((m) => {
+          if (m.trajectory && m.trajectory.length > 1) {
+            const trajCoords = m.trajectory.map((pt) => [pt.lat, pt.lon] as [number, number]);
+            allCoords.push(...trajCoords);
+            const memberLine = L.polyline(trajCoords, {
+              color: '#94a3b8',
+              weight: 1.4,
+              opacity: 0.50,
+              dashArray: '3, 4',
+              lineCap: 'round',
+            });
+
+            memberLine.on('mouseover', () => {
+              memberLine.setStyle({
+                color: '#38bdf8',
+                weight: 2.8,
+                opacity: 0.95,
+              });
+              memberLine.bringToFront();
+            });
+
+            memberLine.on('mouseout', () => {
+              memberLine.setStyle({
+                color: '#94a3b8',
+                weight: 1.4,
+                opacity: 0.50,
+              });
+            });
+
+            memberLine.bindTooltip(
+              `<div style="font-family: var(--font-sans); font-size: 11px; line-height: 1.4;">
+                 <b style="color:#38bdf8;">Ensemble Member #${m.member_id + 1}</b><br/>
+                 Simulated Duration: <b>${m.total_duration_hours.toFixed(1)} hrs</b><br/>
+                 Average SOG: <b>${m.average_speed_kts.toFixed(1)} kts</b><br/>
+                 Peak Wind: <b>${m.max_wind_kts.toFixed(1)} kts</b>
+               </div>`,
+              { sticky: true }
+            );
+
+            ensGroup?.addLayer(memberLine);
+          }
+        });
+      }
+
       group.addLayer(polyline);
 
-      // B. Draw Isochrones for Active Route (if toggled)
+      // C. Draw Isochrones for Active Route (if toggled)
       if (isActive && showIsochrones && r.isochrones) {
         r.isochrones.forEach((wave, idx) => {
           if (idx % 2 === 0 && wave.points.length > 1) {
