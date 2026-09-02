@@ -914,21 +914,21 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                 )}
               </div>
 
-              {/* Strategy B: 4D Forward Simulation Box */}
+              {/* Strategy B: Multi-Isochrone Optimal Solves Box */}
               <div className="confidence-metric-box">
                 <div className="confidence-box-header">
-                  <span className="confidence-box-title">Strategy B: Full 4D Member Sim</span>
+                  <span className="confidence-box-title">Strategy B: Multi-Isochrone Solves</span>
                   <span className="conf-strat-pill pill-strat-b">{routeResult.confidence.score_strategy_b.toFixed(0)}%</span>
                 </div>
-                <p className="confidence-box-desc">{routeResult.confidence.num_members}-member forward polar trajectory integration</p>
+                <p className="confidence-box-desc">{routeResult.confidence.num_members}-member independent isochrone pathfinding solves</p>
                 {routeResult.confidence.ensemble_comparison && (
                   <div className="strat-metrics-list">
                     <div className="strat-metric-row">
-                      <span>Simulated Mean Duration:</span>
+                      <span>Solved Mean Duration:</span>
                       <strong>{routeResult.confidence.ensemble_comparison.mean_duration_hours.toFixed(1)}h (±{routeResult.confidence.ensemble_comparison.std_duration_hours.toFixed(1)}h)</strong>
                     </div>
                     <div className="strat-metric-row">
-                      <span>Fastest ↔ Slowest Member:</span>
+                      <span>Fastest ↔ Slowest Route:</span>
                       <strong>{routeResult.confidence.ensemble_comparison.min_duration_hours.toFixed(1)}h – {routeResult.confidence.ensemble_comparison.max_duration_hours.toFixed(1)}h</strong>
                     </div>
                     <div className="strat-metric-row">

@@ -169,8 +169,11 @@ export interface WeatherGridResponse {
 export interface MemberOutcome {
   member_id: number;
   total_duration_hours: number;
+  total_distance_nm?: number;
   average_speed_kts: number;
   max_wind_kts: number;
+  total_tacks?: number;
+  waypoints?: Waypoint[];
   trajectory?: Point[];
 }
 

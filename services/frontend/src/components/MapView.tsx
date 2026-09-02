@@ -603,10 +603,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
             memberLine.bindTooltip(
               `<div style="font-family: var(--font-sans); font-size: 11px; line-height: 1.4;">
-                 <b style="color:#38bdf8;">Ensemble Member #${m.member_id + 1}</b><br/>
-                 Simulated Duration: <b>${m.total_duration_hours.toFixed(1)} hrs</b><br/>
-                 Average SOG: <b>${m.average_speed_kts.toFixed(1)} kts</b><br/>
-                 Peak Wind: <b>${m.max_wind_kts.toFixed(1)} kts</b>
+                 <b style="color:#38bdf8;">Ensemble Member #${m.member_id + 1} (Optimal Isochrone Track)</b><br/>
+                 Solved Duration: <b>${m.total_duration_hours.toFixed(1)} hrs</b> (${(m.total_duration_hours / 24).toFixed(1)} d)<br/>
+                 Distance: <b>${(m.total_distance_nm ?? r.total_distance_nm).toFixed(1)} NM</b> (Avg ${m.average_speed_kts.toFixed(1)} kts)<br/>
+                 Peak Wind: <b>${m.max_wind_kts.toFixed(1)} kts</b>${m.total_tacks !== undefined ? ` | Tacks: ${m.total_tacks}` : ''}
                </div>`,
               { sticky: true }
             );
