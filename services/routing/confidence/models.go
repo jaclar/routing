@@ -9,16 +9,26 @@ import (
 
 // RouteConfidence encapsulates the complete confidence analysis across both Strategy A (statistics) and Strategy B (4D members).
 type RouteConfidence struct {
-	OverallScore       float64             `json:"overall_score"`         // [0..100] Integrated primary confidence score
-	Category           string              `json:"category"`              // "Very High" | "High" | "Moderate" | "Low" | "High Uncertainty"
-	ScoreStrategyA     float64             `json:"score_strategy_a"`      // [0..100] Precomputed statistical score
-	ScoreStrategyB     float64             `json:"score_strategy_b"`      // [0..100] 4D forward ensemble member simulation score
-	AgreementScore     float64             `json:"agreement_score"`      // [0..100] Correlation / consistency between Strategy A and Strategy B
-	ModelID            string              `json:"model_id"`              // Weather model evaluated (e.g. gefs_0p50, ifs_ens_0p25)
-	NumMembers         int                 `json:"num_members"`           // Number of ensemble members evaluated
+	OverallScore          float64                `json:"overall_score"`         // [0..100] Integrated primary confidence score
+	Category              string                 `json:"category"`              // "Very High" | "High" | "Moderate" | "Low" | "High Uncertainty"
+	ScoreStrategyA        float64                `json:"score_strategy_a"`      // [0..100] Precomputed statistical score
+	ScoreStrategyB        float64                `json:"score_strategy_b,omitempty"`      // [0..100] 4D forward ensemble member simulation score (if calculated)
+	AgreementScore        float64                `json:"agreement_score,omitempty"`      // [0..100] Correlation / consistency between Strategy A and Strategy B (if calculated)
+	ModelID               string                 `json:"model_id"`              // Weather model evaluated (e.g. gefs_0p50, ifs_ens_0p25)
+	NumMembers            int                    `json:"num_members"`           // Number of ensemble members evaluated
 	Waypoints             []WaypointConfidence   `json:"waypoints"`                      // Per-waypoint confidence breakdown for timeline scrubber
 	StatisticalComparison *StatisticalComparison `json:"statistical_comparison,omitempty"` // Theoretical metrics derived from Strategy A
-	EnsembleComparison    *EnsembleComparison    `json:"ensemble_comparison,omitempty"`   // Detailed comparison metrics between member outcomes
+	EnsembleComparison    *EnsembleComparison    `json:"ensemble_comparison,omitempty"`   // Detailed comparison metrics between member outcomes (only when multi-isochrone solve is run)
+	UncertaintyEnvelope   *UncertaintyEnvelope   `json:"uncertainty_envelope,omitempty"`  // Spatial corridor of route uncertainty
+}
+
+// UncertaintyEnvelope defines the spatial corridor of route uncertainty bounded by NWP dispersion and forecast lead time.
+type UncertaintyEnvelope struct {
+	LeftBoundary    []geo.Point `json:"left_boundary"`
+	RightBoundary   []geo.Point `json:"right_boundary"`
+	Polygon         []geo.Point `json:"polygon"`          // Ordered loop [LeftStart -> LeftEnd -> RightEnd -> RightStart]
+	ConfidenceLevel string      `json:"confidence_level"` // e.g. "80% (P10 - P90) Corridor"
+	MaxLateralNM    float64     `json:"max_lateral_nm"`   // Maximum corridor half-width in NM
 }
 
 // StatisticalComparison holds theoretical arrival metrics derived from Strategy A statistical error propagation.
@@ -36,7 +46,8 @@ type WaypointConfidence struct {
 	Time                   time.Time `json:"time"`
 	Score                  float64   `json:"score"`                     // [0..100] Combined score for scrubber
 	ScoreStrategyA         float64   `json:"score_strategy_a"`          // [0..100]
-	ScoreStrategyB         float64   `json:"score_strategy_b"`          // [0..100]
+	ScoreStrategyB         float64   `json:"score_strategy_b,omitempty"`// [0..100]
+	LateralUncertaintyNM   float64   `json:"lateral_uncertainty_nm"`   // [NM] Corridor half-width at waypoint
 	WindSpeedMean          float64   `json:"wind_speed_mean_kts"`       // [knots]
 	WindSpeedStd           float64   `json:"wind_speed_std_kts"`        // [knots]
 	WindSpeedP10           float64   `json:"wind_speed_p10_kts"`        // [knots]

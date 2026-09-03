@@ -132,7 +132,6 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 	startTime := route.StartTime
 
 	var totalWeightedScoreA float64
-	var totalWeightedScoreB float64
 	var totalDist float64
 
 	// Strategy A theoretical error propagation structures
@@ -140,14 +139,9 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 	var sumLegDurationStd float64
 	var sumSquareLegDurationStd float64
 
-	// Strategy B simulation structures
-	memberDurations := make([]float64, numMembers)
-	memberTotalDist := make([]float64, numMembers)
-	memberMaxWind := make([]float64, numMembers)
-	memberTrajectories := make([][]geo.Point, numMembers)
-	for m := 0; m < numMembers; m++ {
-		memberTrajectories[m] = make([]geo.Point, 0, nWps)
-	}
+	leftBoundary := make([]geo.Point, nWps)
+	rightBoundary := make([]geo.Point, nWps)
+	var maxLateralNM float64
 
 	for i, wp := range wps {
 		horizonHours := wp.Time.Sub(startTime).Hours()
@@ -204,7 +198,7 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 		// Directional spread estimate (increases smoothly from 5° to 35° with lead time)
 		dirSpread = math.Min(45.0, 5.0+0.18*horizonHours)
 
-		// A. Strategy A Scoring Formula
+		// Strategy A Scoring Formula
 		cv := stdSpd / math.Max(meanSpd, 5.0)
 		fSpeed := math.Exp(-2.0 * cv)
 		fDir := math.Exp(-dirSpread / 40.0)
@@ -213,8 +207,6 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 
 		scoreA := clamp(100.0*fSpeed*fDir*fGale*fHorizon, 5.0, 99.0)
 
-		// B. Strategy B Member Simulation across N members
-		memberSpeeds := make([]float64, numMembers)
 		var legDist float64
 		if i > 0 {
 			legDist = wp.DistanceNM - wps[i-1].DistanceNM
@@ -223,128 +215,67 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 			}
 		}
 
-		// Parabolic ensemble plume envelope: expands mid-route and reconverges at destination
+		// Spatial Uncertainty Envelope Corridor:
+		// Plume half-width widens with lead time and directional spread.
+		// As in real ocean navigation, the skipper navigates to the expected endpoint,
+		// so the envelope is anchored at departure and smoothly collapses back over the ideal route at destination.
 		sProgress := float64(i) / math.Max(1.0, float64(nWps-1))
-		envelope := 4.0 * sProgress * (1.0 - sProgress)
-		lateralSpreadNM := (dirSpread / 25.0) * math.Min(45.0, math.Max(10.0, route.TotalDistanceNM*0.06))
+		taperStart := math.Min(1.0, sProgress/0.08)
+		taperEnd := math.Min(1.0, (1.0-sProgress)/0.25)
+		// Smooth Hermite cubic interpolation for convergence toward arrival waypoint
+		taperEnd = taperEnd * taperEnd * (3.0 - 2.0*taperEnd)
+		convergenceFactor := taperStart * taperEnd
 
-		for m := 0; m < numMembers; m++ {
-			// Generate realistic member perturbation around mean
-			var mPerturb float64
-			if numMembers > 1 {
-				mPerturb = (float64(m) - float64(numMembers-1)/2.0) / (float64(numMembers-1) / 2.0)
-			}
-			// 1. Scale wind speed across the [-1.0σ, +1.0σ] ensemble dispersion interval.
-			// mPerturb ranges from -1.0 to +1.0; multiplying by stdSpd * 1.0 maps members
-			// directly to the true 1-sigma credible interval without artificial amplification.
-			mWindSpeed := meanSpd + mPerturb*stdSpd*1.0
-
-			// 2. Physical floor (1.0 kt): Prevents polar speed collapsing to 0.0 kts,
-			// which would cause division-by-zero asymptotes (Δt = Δd / SOG -> ∞).
-			// Open-ocean surface boundary layer turbulence ensures baseline drift >= 1.0 kt.
-			if mWindSpeed < 1.0 {
-				mWindSpeed = 1.0
-			}
-			mDir := wp.TWDDeg + mPerturb*dirSpread*0.6
-
-			// Compute TWA for this member given the planned course heading
-			mTWA := math.Abs(wp.HeadingDeg - mDir)
-			for mTWA > 180 {
-				mTWA = 360 - mTWA
-			}
-
-			// In real sailing, if an adverse wind shift pushes the boat into the no-go dead zone (TWA < 38°),
-			// the helmsman adjusts heading to maintain optimal close-hauled VMG (TWA_opt ~ 38°-42°),
-			// rather than stalling in the no-go zone. Effective speed along the waypoint course is reduced by cos(heading_adjustment).
-			effectiveTWA := mTWA
-			headingCorrectionRad := 0.0
-			const minSailableTWA = 38.0
-
-			if wp.TWADeg >= minSailableTWA && effectiveTWA < minSailableTWA {
-				// Wind headed the boat into no-go zone: helmsman heads off to minimum sailable angle
-				neededAdjustmentDeg := minSailableTWA - effectiveTWA
-				effectiveTWA = minSailableTWA
-				headingCorrectionRad = (neededAdjustmentDeg * math.Pi) / 180.0
-			}
-
-			// Polar lookup with effective sailable angle
-			var mSOG float64
-			if polarTable != nil {
-				mSOG = polarTable.InterpolateSpeed(mWindSpeed, effectiveTWA)
-			} else {
-				mSOG = wp.BoatSpeedKts * (1.0 + 0.4*(mWindSpeed-meanSpd)/math.Max(meanSpd, 1.0))
-			}
-
-			// Velocity made good along the waypoint track leg
-			effectiveSOG := mSOG * math.Cos(headingCorrectionRad)
-			if effectiveSOG < 1.5 {
-				effectiveSOG = 1.5
-			}
-
-			memberSpeeds[m] = effectiveSOG
-
-			if legDist > 0 {
-				memberDurations[m] += legDist / effectiveSOG
-				memberTotalDist[m] += legDist
-			}
-			if mWindSpeed > memberMaxWind[m] {
-				memberMaxWind[m] = mWindSpeed
-			}
-
-			// Spatial track point with land collision validation
-			if i == 0 || i == nWps-1 || envelope <= 0.001 {
-				memberTrajectories[m] = append(memberTrajectories[m], geo.Point{Lat: wp.Lat, Lon: wp.Lon})
-			} else {
-				offsetDistMeters := mPerturb * lateralSpreadNM * envelope * geo.NMToMeters
-				offsetBearing := geo.NormalizeAngle360(wp.HeadingDeg + 90.0)
-
-				targetPt := geo.Point{Lat: wp.Lat, Lon: wp.Lon}
-				if e.landMask != nil && math.Abs(offsetDistMeters) > 10.0 {
-					var prevPt geo.Point
-					if len(memberTrajectories[m]) > 0 {
-						prevPt = memberTrajectories[m][len(memberTrajectories[m])-1]
-					} else {
-						prevPt = geo.Point{Lat: wp.Lat, Lon: wp.Lon}
-					}
-					foundNavigable := false
-					// Try decreasing offset distances (100% -> 75% -> 50% -> 25% -> 0%)
-					for _, scale := range []float64{1.0, 0.75, 0.50, 0.25, 0.0} {
-						testPt := geo.DestinationPoint(geo.Point{Lat: wp.Lat, Lon: wp.Lon}, offsetDistMeters*scale, offsetBearing)
-						if !e.landMask.IsLand(testPt) && !e.landMask.SegmentIntersectsLand(prevPt, testPt, 3) {
-							targetPt = testPt
-							foundNavigable = true
-							break
-						}
-					}
-					if !foundNavigable {
-						targetPt = geo.Point{Lat: wp.Lat, Lon: wp.Lon}
-					}
-				} else {
-					targetPt = geo.DestinationPoint(geo.Point{Lat: wp.Lat, Lon: wp.Lon}, offsetDistMeters, offsetBearing)
-				}
-				memberTrajectories[m] = append(memberTrajectories[m], targetPt)
-			}
+		rawSpreadNM := 0.5
+		if i > 0 {
+			expansionFactor := 1.0 + 0.008*horizonHours
+			spreadFactor := dirSpread / 20.0
+			rawSpreadNM = math.Min(60.0, math.Max(1.0, (wp.DistanceNM+5.0)*0.045*spreadFactor*expansionFactor))
+		}
+		lateralSpreadNM := rawSpreadNM * convergenceFactor
+		if i == 0 || i == nWps-1 {
+			lateralSpreadNM = 0.0
 		}
 
-		// Calculate member speed distribution at this waypoint
-		mMeanSOG, mStdSOG := meanAndStd(memberSpeeds)
-		sort.Float64s(memberSpeeds)
-		mP10SOG := percentile(memberSpeeds, 0.10)
-		mP90SOG := percentile(memberSpeeds, 0.90)
+		if lateralSpreadNM > maxLateralNM {
+			maxLateralNM = lateralSpreadNM
+		}
 
-		// Strategy B Waypoint Score
-		speedCV_B := mStdSOG / math.Max(mMeanSOG, 2.0)
-		scoreB := clamp(100.0*math.Exp(-2.5*speedCV_B)*math.Exp(-dirSpread/45.0)*fHorizon, 5.0, 99.0)
+		// Calculate perpendicular boundary points for the corridor
+		wpPt := geo.Point{Lat: wp.Lat, Lon: wp.Lon}
+		leftPt := wpPt
+		rightPt := wpPt
 
-		// Combined waypoint score (50/50 blend of Strategy A & B)
-		combinedScore := round1((scoreA + scoreB) / 2.0)
+		var heading float64
+		if i < nWps-1 {
+			heading = geo.InitialBearing(wpPt, geo.Point{Lat: wps[i+1].Lat, Lon: wps[i+1].Lon})
+		} else if i > 0 {
+			heading = geo.InitialBearing(geo.Point{Lat: wps[i-1].Lat, Lon: wps[i-1].Lon}, wpPt)
+		} else {
+			heading = wp.HeadingDeg
+		}
+
+		thetaLeft := geo.NormalizeAngle360(heading - 90.0)
+		thetaRight := geo.NormalizeAngle360(heading + 90.0)
+		distMeters := lateralSpreadNM * geo.NMToMeters
+
+		if e.landMask != nil && distMeters > 50.0 {
+			leftPt = e.findNavigableEnvelopePoint(wpPt, distMeters, thetaLeft)
+			rightPt = e.findNavigableEnvelopePoint(wpPt, distMeters, thetaRight)
+		} else {
+			leftPt = geo.DestinationPoint(wpPt, distMeters, thetaLeft)
+			rightPt = geo.DestinationPoint(wpPt, distMeters, thetaRight)
+		}
+
+		leftBoundary[i] = leftPt
+		rightBoundary[i] = rightPt
 
 		waypointConf[i] = WaypointConfidence{
 			Index:                 i,
 			Time:                  wp.Time,
-			Score:                 combinedScore,
+			Score:                 round1(scoreA),
 			ScoreStrategyA:        round1(scoreA),
-			ScoreStrategyB:        round1(scoreB),
+			LateralUncertaintyNM:  round1(lateralSpreadNM),
 			WindSpeedMean:         round1(meanSpd),
 			WindSpeedStd:          round1(stdSpd),
 			WindSpeedP10:          round1(p10Spd),
@@ -352,10 +283,6 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 			WindDirSpreadDeg:      round1(dirSpread),
 			GaleProbability:       round2(prob34),
 			StrongWindProbability: round2(prob25),
-			MemberSpeedMean:       round1(mMeanSOG),
-			MemberSpeedStd:        round1(mStdSOG),
-			MemberSpeedP10:        round1(mP10SOG),
-			MemberSpeedP90:        round1(mP90SOG),
 		}
 
 		// Strategy A theoretical error propagation
@@ -386,28 +313,11 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 			weight = 1.0
 		}
 		totalWeightedScoreA += scoreA * weight
-		totalWeightedScoreB += scoreB * weight
 		totalDist += weight
 	}
 
-	// 3. Compute Overall Scores
+	// 3. Compute Overall Score
 	overallScoreA := totalWeightedScoreA / math.Max(totalDist, 1.0)
-	overallScoreB := totalWeightedScoreB / math.Max(totalDist, 1.0)
-
-	// Additional Strategy B duration penalty
-	meanDur, stdDur := meanAndStd(memberDurations)
-	sort.Float64s(memberDurations)
-	minDur := memberDurations[0]
-	maxDur := memberDurations[len(memberDurations)-1]
-	p10Dur := percentile(memberDurations, 0.10)
-	p90Dur := percentile(memberDurations, 0.90)
-	iqrDur := percentile(memberDurations, 0.75) - percentile(memberDurations, 0.25)
-
-	if meanDur > 0 {
-		durSpreadRatio := stdDur / meanDur
-		overallScoreB = overallScoreB * math.Exp(-1.5*durSpreadRatio)
-	}
-	overallScoreB = clamp(overallScoreB, 5.0, 99.0)
 
 	// Strategy A Theoretical Arrival Metrics
 	nominalDurationA := route.TotalDurationHours
@@ -430,67 +340,45 @@ func (e *Evaluator) EvaluateRoute(ctx context.Context, route *isochrone.RouteRes
 		IQRDurationHours:  round1(iqrDurationA),
 	}
 
-	// Final blended overall score
-	primaryOverallScore := round1((overallScoreA*0.5 + overallScoreB*0.5))
-
-	// Agreement Score (Strategy A vs B consistency)
-	scoreDiff := math.Abs(overallScoreA - overallScoreB)
-	agreementScore := round1(clamp(100.0-scoreDiff*1.8, 20.0, 99.0))
-
-	// 4. Assemble Ensemble Comparison
-	var memberOutcomes []MemberOutcome
-	fastestID, slowestID := 0, 0
-	fastestTime, slowestTime := 1e9, -1.0
-
-	for m := 0; m < numMembers; m++ {
-		dur := memberDurations[m]
-		if dur <= 0 {
-			dur = route.TotalDurationHours
-		}
-		if dur < fastestTime {
-			fastestTime = dur
-			fastestID = m
-		}
-		if dur > slowestTime {
-			slowestTime = dur
-			slowestID = m
-		}
-		avgSpd := route.TotalDistanceNM / math.Max(dur, 0.1)
-		memberOutcomes = append(memberOutcomes, MemberOutcome{
-			MemberID:           m,
-			TotalDurationHours: round1(dur),
-			AverageSpeedKts:    round1(avgSpd),
-			MaxWindKts:         round1(memberMaxWind[m]),
-			Trajectory:         memberTrajectories[m],
-		})
+	// Assemble closed envelope polygon [LeftStart -> LeftEnd -> RightEnd -> RightStart]
+	polygon := make([]geo.Point, 0, nWps*2)
+	for i := 0; i < nWps; i++ {
+		polygon = append(polygon, leftBoundary[i])
 	}
-
-	comparison := &EnsembleComparison{
-		MeanDurationHours: round1(meanDur),
-		StdDurationHours:  round1(stdDur),
-		MinDurationHours:  round1(minDur),
-		MaxDurationHours:  round1(maxDur),
-		IQRDurationHours:  round1(iqrDur),
-		P10DurationHours:  round1(p10Dur),
-		P90DurationHours:  round1(p90Dur),
-		FastestMemberID:   fastestID,
-		SlowestMemberID:   slowestID,
-		MemberCount:       numMembers,
-		Members:           memberOutcomes,
+	for i := nWps - 1; i >= 0; i-- {
+		polygon = append(polygon, rightBoundary[i])
 	}
 
 	return &RouteConfidence{
-		OverallScore:          primaryOverallScore,
-		Category:              CategorizeConfidence(primaryOverallScore),
+		OverallScore:          round1(overallScoreA),
+		Category:              CategorizeConfidence(overallScoreA),
 		ScoreStrategyA:        round1(overallScoreA),
-		ScoreStrategyB:        round1(overallScoreB),
-		AgreementScore:        agreementScore,
 		ModelID:               modelID,
 		NumMembers:            numMembers,
 		Waypoints:             waypointConf,
 		StatisticalComparison: statComparison,
-		EnsembleComparison:    comparison,
+		EnsembleComparison:    nil, // Pure statistical evaluation; no fake member simulations
+		UncertaintyEnvelope: &UncertaintyEnvelope{
+			LeftBoundary:    leftBoundary,
+			RightBoundary:   rightBoundary,
+			Polygon:         polygon,
+			ConfidenceLevel: "80% (P10 - P90) Corridor",
+			MaxLateralNM:    round1(maxLateralNM),
+		},
 	}, nil
+}
+
+func (e *Evaluator) findNavigableEnvelopePoint(center geo.Point, distMeters float64, bearing float64) geo.Point {
+	if e.landMask == nil {
+		return geo.DestinationPoint(center, distMeters, bearing)
+	}
+	for _, scale := range []float64{1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.10, 0.0} {
+		candidate := geo.DestinationPoint(center, distMeters*scale, bearing)
+		if !e.landMask.IsLand(candidate) && !e.landMask.SegmentIntersectsLand(center, candidate, 3) {
+			return candidate
+		}
+	}
+	return center
 }
 
 func (e *Evaluator) fetchMeteoPoints(ctx context.Context, url string) ([]OpenMeteoMultiPointResponse, error) {
@@ -845,6 +733,11 @@ func (e *Evaluator) EvaluateRouteMultiIsochrone(
 	// Combined Physical Agreement Index
 	agreementScore := round1(clamp(0.70*durAgreement+0.30*spreadAgreement, 10.0, 99.0))
 
+	var env *UncertaintyEnvelope
+	if baseConf != nil {
+		env = baseConf.UncertaintyEnvelope
+	}
+
 	return &RouteConfidence{
 		OverallScore:          overallScore,
 		Category:              CategorizeConfidence(overallScore),
@@ -867,5 +760,6 @@ func (e *Evaluator) EvaluateRouteMultiIsochrone(
 			MemberCount:       len(memberOutcomes),
 			Members:           memberOutcomes,
 		},
+		UncertaintyEnvelope: env,
 	}, nil
 }

@@ -176,17 +176,34 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 			lastErr = res.err
 		} else if res.route != nil {
 			res.route.ModelID = res.modelID
-			// Evaluate ensemble confidence with full multi-isochrone solves across all N members
-			conf, confErr := s.confEvaluator.EvaluateRouteMultiIsochrone(
-				r.Context(),
-				res.route,
-				req.Start,
-				req.Dest,
-				polarTable,
-				res.baseGrid,
-				res.modelID,
-				cfg,
-			)
+			// Primary operational confidence: Strategy A (statistical error propagation from 3D dispersion & polar gradients).
+			// If client explicitly requests multi-isochrone Strategy B, evaluate with full member solver.
+			useMultiIsochrone := strings.EqualFold(r.URL.Query().Get("ensemble_strategy"), "multi") ||
+				strings.EqualFold(r.URL.Query().Get("ensemble_strategy"), "b") ||
+				strings.EqualFold(r.URL.Query().Get("strategy"), "b")
+
+			var conf *confidence.RouteConfidence
+			var confErr error
+
+			if useMultiIsochrone {
+				conf, confErr = s.confEvaluator.EvaluateRouteMultiIsochrone(
+					r.Context(),
+					res.route,
+					req.Start,
+					req.Dest,
+					polarTable,
+					res.baseGrid,
+					res.modelID,
+					cfg,
+				)
+			} else {
+				conf, confErr = s.confEvaluator.EvaluateRoute(
+					r.Context(),
+					res.route,
+					polarTable,
+					res.modelID,
+				)
+			}
 			if confErr == nil && conf != nil {
 				res.route.Confidence = conf
 				for i := range res.route.Waypoints {
@@ -200,6 +217,7 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 						res.route.Waypoints[i].WindSpeedP90Kts = wpC.WindSpeedP90
 						res.route.Waypoints[i].WindDirSpreadDeg = wpC.WindDirSpreadDeg
 						res.route.Waypoints[i].GaleProbability = wpC.GaleProbability
+						res.route.Waypoints[i].LateralUncertaintyNM = wpC.LateralUncertaintyNM
 					}
 				}
 			}

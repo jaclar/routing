@@ -51,8 +51,9 @@ type Waypoint struct {
 	WindSpeedStdKts  float64   `json:"wind_speed_std_kts,omitempty"`
 	WindSpeedP10Kts  float64   `json:"wind_speed_p10_kts,omitempty"`
 	WindSpeedP90Kts  float64   `json:"wind_speed_p90_kts,omitempty"`
-	WindDirSpreadDeg float64   `json:"wind_dir_spread_deg,omitempty"`
-	GaleProbability  float64   `json:"gale_probability,omitempty"`
+	WindDirSpreadDeg     float64   `json:"wind_dir_spread_deg,omitempty"`
+	GaleProbability      float64   `json:"gale_probability,omitempty"`
+	LateralUncertaintyNM float64   `json:"lateral_uncertainty_nm,omitempty"`
 }
 
 // IsochroneWave represents a single time-frontier line on the map.
