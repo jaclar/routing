@@ -55,6 +55,7 @@ services:
     command: ["/app/meteo-worker", "--daemon", "--poll-interval=10", "--concurrency=8"]
     environment:
       - DATA_DIR=/data/store
+      - STORE_FULL_ENSEMBLE=${STORE_FULL_ENSEMBLE:-false}
     volumes:
       - /data/store:/data/store
     restart: unless-stopped
