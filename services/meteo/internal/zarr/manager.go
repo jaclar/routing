@@ -35,7 +35,7 @@ func CycleSlug(t time.Time) string {
 }
 
 // CreateStagingWriter prepares a temporary staging Zarr store before atomic promotion.
-func (m *StoreManager) CreateStagingWriter(cycle *model.ModelCycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep float64, variables []string) (*StoreWriter, string, error) {
+func (m *StoreManager) CreateStagingWriter(cycle *model.ModelCycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep float64, variables []string, storeFullEnsemble bool) (*StoreWriter, string, error) {
 	modelDir := m.ModelDir(cycle.ModelName)
 	if err := os.MkdirAll(modelDir, 0755); err != nil {
 		return nil, "", err
@@ -45,7 +45,7 @@ func (m *StoreManager) CreateStagingWriter(cycle *model.ModelCycle, latStart, la
 	stagingDir := filepath.Join(modelDir, fmt.Sprintf("%s.staging.zarr", slug))
 	_ = os.RemoveAll(stagingDir) // Clean any previous failed attempt
 
-	writer, err := NewStoreWriter(stagingDir, cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, variables)
+	writer, err := NewStoreWriter(stagingDir, cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, variables, storeFullEnsemble)
 	if err != nil {
 		return nil, "", err
 	}

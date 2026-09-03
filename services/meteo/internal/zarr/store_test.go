@@ -36,7 +36,7 @@ func TestZarrStoreWriteRead(t *testing.T) {
 	lonStart, lonEnd, lonStep := -65.0, -60.25, 0.25
 	vars := []string{model.VarWindU10m, model.VarWindV10m}
 
-	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars)
+	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars, false)
 	if err != nil {
 		t.Fatalf("failed to create staging writer: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestZarrEnsembleHybridStoreWriteRead(t *testing.T) {
 	lonStart, lonEnd, lonStep := -65.0, -60.0, 0.50
 	vars := []string{model.VarWindU10m, model.VarWindV10m}
 
-	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars)
+	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars, true)
 	if err != nil {
 		t.Fatalf("failed to create staging writer: %v", err)
 	}
@@ -288,5 +288,135 @@ func TestZarrEnsembleHybridStoreWriteRead(t *testing.T) {
 	}
 	if prob25[0] < 0 || prob25[0] > 1.0 {
 		t.Errorf("prob_wind_ge_25kt out of bounds [0, 1]: %f", prob25[0])
+	}
+}
+
+func TestEnsembleStatisticalOnlyStoreWriteRead(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "meteo_zarr_stat_only_test_*")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mgr, err := NewStoreManager(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to init store manager: %v", err)
+	}
+
+	refTime := time.Date(2026, 8, 30, 6, 0, 0, 0, time.UTC)
+	members := []int{0, 1, 2, 3, 4}
+	cycle := &model.ModelCycle{
+		ModelName:     "gefs_0p50",
+		ReferenceTime: refTime,
+		ResolutionDeg: 0.50,
+		ForecastSteps: []int{0, 6, 12},
+		Members:       members,
+		IsEnsemble:    true,
+	}
+
+	latStart, latEnd, latStep := 15.0, 10.0, 0.50
+	lonStart, lonEnd, lonStep := -65.0, -60.0, 0.50
+	vars := []string{model.VarWindU10m, model.VarWindV10m}
+
+	// storeFullEnsemble = false (Strategy A statistical summary mode)
+	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars, false)
+	if err != nil {
+		t.Fatalf("failed to create staging writer: %v", err)
+	}
+
+	nlats := int(math.Round((latStart-latEnd)/latStep)) + 1
+	nlons := int(math.Round((lonEnd-lonStart)/lonStep)) + 1
+
+	for _, step := range cycle.ForecastSteps {
+		for _, mID := range members {
+			uData := make([]float32, nlats*nlons)
+			vData := make([]float32, nlats*nlons)
+
+			for i := 0; i < nlats; i++ {
+				for j := 0; j < nlons; j++ {
+					idx := i*nlons + j
+					uData[idx] = float32(10.0 + float64(mID)*2.0 + float64(step)*0.5)
+					vData[idx] = float32(5.0 + float64(mID)*1.0 + float64(step)*0.2)
+				}
+			}
+
+			err = writer.WriteSlice(&model.RawGridSlice{
+				Variable:  model.VarWindU10m,
+				StepHours: step,
+				Member:    mID,
+				Data:      uData,
+			})
+			if err != nil {
+				t.Fatalf("write u slice failed: %v", err)
+			}
+
+			err = writer.WriteSlice(&model.RawGridSlice{
+				Variable:  model.VarWindV10m,
+				StepHours: step,
+				Member:    mID,
+				Data:      vData,
+			})
+			if err != nil {
+				t.Fatalf("write v slice failed: %v", err)
+			}
+		}
+	}
+
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("finalize failed: %v", err)
+	}
+
+	if err := mgr.PromoteStagingStore(cycle.ModelName, cycle.ReferenceTime, stagingDir); err != nil {
+		t.Fatalf("promotion failed: %v", err)
+	}
+
+	store, err := mgr.OpenLatest(cycle.ModelName)
+	if err != nil {
+		t.Fatalf("open latest store failed: %v", err)
+	}
+
+	if !store.IsEnsemble {
+		t.Errorf("expected IsEnsemble to be true")
+	}
+	if store.StoreMembers {
+		t.Errorf("expected StoreMembers to be false")
+	}
+
+	// 1. Verify 4D member chunks are NOT on disk
+	uMember1Chunk := filepath.Join(store.RootDir, model.VarWindU10m, "0.1.0.0")
+	if _, err := os.Stat(uMember1Chunk); err == nil {
+		t.Errorf("expected member 1 chunk %s NOT to exist when StoreMembers is false", uMember1Chunk)
+	}
+
+	// 2. Querying specific non-zero member should return an error stating members are not stored
+	_, err = store.GetMemberPointTimeSeries(model.VarWindU10m, 1, 2, 2)
+	if err == nil {
+		t.Errorf("expected error when querying member 1 on statistical-only store")
+	}
+
+	// 3. Querying canonical variable wind_u_10m directly returns ensemble mean (mean of [10, 12, 14, 16, 18] = 14.0)
+	uMean, err := store.GetPointTimeSeries(model.VarWindU10m, 2, 2)
+	if err != nil {
+		t.Fatalf("get wind_u_10m (ensemble mean) failed: %v", err)
+	}
+	if math.Abs(float64(uMean[0]-14.0)) > 1e-3 {
+		t.Errorf("expected ensemble mean U=14.0, got %f", uMean[0])
+	}
+
+	// 4. Querying statistical arrays works cleanly for Strategy A
+	stdU, err := store.GetPointTimeSeries(model.VarWindU10m+"_std", 2, 2)
+	if err != nil {
+		t.Fatalf("get wind_u_10m_std failed: %v", err)
+	}
+	if stdU[0] <= 0 {
+		t.Errorf("expected positive std, got %f", stdU[0])
+	}
+
+	p90U, err := store.GetPointTimeSeries(model.VarWindU10m+"_p90", 2, 2)
+	if err != nil {
+		t.Fatalf("get wind_u_10m_p90 failed: %v", err)
+	}
+	if p90U[0] <= 14.0 {
+		t.Errorf("expected P90 > mean, got %f", p90U[0])
 	}
 }

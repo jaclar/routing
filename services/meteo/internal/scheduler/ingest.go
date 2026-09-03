@@ -15,11 +15,11 @@ import (
 )
 
 // IngestCycle performs a full cycle ingestion: discovers slices, downloads/decodes in parallel, and writes to staging store.
-func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreManager, cycle *model.ModelCycle, variables []string, concurrency int) error {
+func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreManager, cycle *model.ModelCycle, variables []string, concurrency int, storeFullEnsemble bool) error {
 	tag := fmt.Sprintf("[%s %s]", cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"))
 
-	log.Printf("[Ingest]%s Starting cycle ingestion (%d forecast steps, %d variables)",
-		tag, len(cycle.ForecastSteps), len(variables))
+	log.Printf("[Ingest]%s Starting cycle ingestion (%d forecast steps, %d variables, storeFullEnsemble=%v)",
+		tag, len(cycle.ForecastSteps), len(variables), storeFullEnsemble)
 
 	if concurrency <= 0 {
 		concurrency = 8
@@ -37,7 +37,7 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 	lonStart, lonEnd, lonStep := 0.0, 360.0 - cycle.ResolutionDeg, cycle.ResolutionDeg
 
 	// 2. Create staging Zarr writer
-	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, variables)
+	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, variables, storeFullEnsemble)
 	if err != nil {
 		return fmt.Errorf("failed to create staging writer for %s: %w", tag, err)
 	}

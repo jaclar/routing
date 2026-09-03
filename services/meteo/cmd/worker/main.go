@@ -22,13 +22,19 @@ func main() {
 		defaultDataDir = envDir
 	}
 
+	defaultStoreFullEnsemble := false
+	if envFull := os.Getenv("STORE_FULL_ENSEMBLE"); envFull != "" {
+		defaultStoreFullEnsemble = strings.EqualFold(envFull, "true") || envFull == "1"
+	}
+
 	var (
-		dataDir     = flag.String("data-dir", defaultDataDir, "Root path for Zarr store")
-		daemonMode  = flag.Bool("daemon", false, "Run continuous ingestion daemon")
-		modelFlag   = flag.String("model", "gfs_0p25", "Model to ingest: gfs_0p25, ifs_0p25, icon_global, gefs_0p50, ifs_ens_0p25, icon_eps_global, ensemble, deterministic, all")
-		varsFlag    = flag.String("variables", "wind_u_10m,wind_v_10m,wind_gust_10m,mslp,temp_2m,precip_accum", "Comma-separated canonical variables")
-		concurrency = flag.Int("concurrency", 4, "Number of concurrent slice fetch workers per model")
-		pollMinutes = flag.Int("poll-interval", 10, "Polling interval in minutes for daemon mode")
+		dataDir           = flag.String("data-dir", defaultDataDir, "Root path for Zarr store")
+		daemonMode        = flag.Bool("daemon", false, "Run continuous ingestion daemon")
+		modelFlag         = flag.String("model", "gfs_0p25", "Model to ingest: gfs_0p25, ifs_0p25, icon_global, gefs_0p50, ifs_ens_0p25, icon_eps_global, ensemble, deterministic, all")
+		varsFlag          = flag.String("variables", "wind_u_10m,wind_v_10m,wind_gust_10m,mslp,temp_2m,precip_accum", "Comma-separated canonical variables")
+		concurrency       = flag.Int("concurrency", 4, "Number of concurrent slice fetch workers per model")
+		pollMinutes       = flag.Int("poll-interval", 10, "Polling interval in minutes for daemon mode")
+		storeFullEnsemble = flag.Bool("store-full-ensemble", defaultStoreFullEnsemble, "Store raw 4D individual ensemble member slices (defaults to false; only statistical summaries are stored for Strategy A to minimize storage costs)")
 	)
 	flag.Parse()
 
@@ -53,10 +59,11 @@ func main() {
 
 	if *daemonMode {
 		daemonCfg := scheduler.DaemonConfig{
-			PollInterval: time.Duration(*pollMinutes) * time.Minute,
-			Concurrency:  *concurrency,
-			Variables:    varList,
-			Retention:    2,
+			PollInterval:      time.Duration(*pollMinutes) * time.Minute,
+			Concurrency:       *concurrency,
+			Variables:         varList,
+			Retention:         2,
+			StoreFullEnsemble: *storeFullEnsemble,
 		}
 		d := scheduler.NewIngestionDaemon(daemonCfg, mgr, drivers)
 		d.Start(ctx)
@@ -102,7 +109,7 @@ func main() {
 			}
 
 			log.Printf("Ingesting cycle for %s: %s (%s)", drv.ModelID(), cycle.ModelName, cycle.ReferenceTime.Format("2006-01-02 15:04 UTC"))
-			if err := scheduler.IngestCycle(ctx, drv, mgr, cycle, varList, *concurrency); err != nil {
+			if err := scheduler.IngestCycle(ctx, drv, mgr, cycle, varList, *concurrency, *storeFullEnsemble); err != nil {
 				log.Printf("[ERROR] Ingestion failed for %s: %v", drv.ModelID(), err)
 				return
 			}

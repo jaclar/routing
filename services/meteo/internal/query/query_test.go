@@ -49,7 +49,7 @@ func TestEngineForecastExecution(t *testing.T) {
 	lonStart, lonEnd, lonStep := -65.0, -60.0, 0.25
 	vars := []string{model.VarWindU10m, model.VarWindV10m, model.VarMSLP}
 
-	writer, stagingDir, _ := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars)
+	writer, stagingDir, _ := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars, false)
 	nlats := 21
 	nlons := 21
 
@@ -172,7 +172,7 @@ func TestEngineEnsembleForecastExecution(t *testing.T) {
 	lonStart, lonEnd, lonStep := -65.0, -60.0, 0.50
 	vars := []string{model.VarWindU10m, model.VarWindV10m}
 
-	writer, stagingDir, _ := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars)
+	writer, stagingDir, _ := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars, true)
 	nlats := 11
 	nlons := 11
 

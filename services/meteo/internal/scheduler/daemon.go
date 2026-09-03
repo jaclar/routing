@@ -13,10 +13,11 @@ import (
 
 // DaemonConfig defines polling parameters and target models.
 type DaemonConfig struct {
-	PollInterval time.Duration
-	Concurrency  int
-	Variables    []string
-	Retention    int
+	PollInterval      time.Duration
+	Concurrency       int
+	Variables         []string
+	Retention         int
+	StoreFullEnsemble bool
 }
 
 // IngestionDaemon runs continuously in the background, checking upstream model runs and ingesting new cycles.
@@ -136,7 +137,7 @@ func (d *IngestionDaemon) checkSingleModel(ctx context.Context, modelID string, 
 			modelID, latestCycle.ReferenceTime.Format("2006-01-02 15:04 UTC"), lastCycleTime.Format("2006-01-02 15:04 UTC"))
 
 		// Run ingestion in parallel for this model
-		err := IngestCycle(ctx, drv, d.storeManager, latestCycle, d.cfg.Variables, d.cfg.Concurrency)
+		err := IngestCycle(ctx, drv, d.storeManager, latestCycle, d.cfg.Variables, d.cfg.Concurrency, d.cfg.StoreFullEnsemble)
 		if err != nil {
 			log.Printf("[Daemon] Ingestion failed for %s cycle %s: %v", modelID, latestCycle.ReferenceTime.Format("2006-01-02 15:04 UTC"), err)
 			return

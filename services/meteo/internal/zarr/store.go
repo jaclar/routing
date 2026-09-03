@@ -45,21 +45,22 @@ type Store struct {
 	Cycle       time.Time
 	Steps       []int
 	Members     []int
-	IsEnsemble  bool
-	NMembers    int
-	Lats        []float32
-	Lons        []float32
-	LatStep     float64
-	LonStep     float64
-	Variables   []string
-	ChunkLat    int
-	ChunkLon    int
-	NLats       int
-	NLons       int
-	NSteps      lenSteps
-	chunkCache  map[string][]float32
-	cacheMu     sync.RWMutex
-	maxCacheLen int
+	IsEnsemble   bool
+	StoreMembers bool
+	NMembers     int
+	Lats         []float32
+	Lons         []float32
+	LatStep      float64
+	LonStep      float64
+	Variables    []string
+	ChunkLat     int
+	ChunkLon     int
+	NLats        int
+	NLons        int
+	NSteps       lenSteps
+	chunkCache   map[string][]float32
+	cacheMu      sync.RWMutex
+	maxCacheLen  int
 }
 
 type lenSteps = int
@@ -74,23 +75,25 @@ func OpenStore(dir string) (*Store, error) {
 	// Read reference time / metadata
 	metaPath := filepath.Join(dir, "metadata.json")
 	var cycleMeta struct {
-		ModelName     string    `json:"model_name"`
-		ReferenceTime time.Time `json:"reference_time"`
-		ResolutionDeg float64   `json:"resolution_deg"`
-		Steps         []int     `json:"steps"`
-		Members       []int     `json:"members,omitempty"`
-		IsEnsemble    bool      `json:"is_ensemble,omitempty"`
-		Variables     []string  `json:"variables"`
-		LatStart      float64   `json:"lat_start"`
-		LatEnd        float64   `json:"lat_end"`
-		LatStep       float64   `json:"lat_step"`
-		LonStart      float64   `json:"lon_start"`
-		LonEnd        float64   `json:"lon_end"`
-		LonStep       float64   `json:"lon_step"`
-		NLats         int       `json:"nlats"`
-		NLons         int       `json:"nlons"`
-		ChunkLat      int       `json:"chunk_lat"`
-		ChunkLon      int       `json:"chunk_lon"`
+		ModelName          string    `json:"model_name"`
+		ReferenceTime      time.Time `json:"reference_time"`
+		ResolutionDeg      float64   `json:"resolution_deg"`
+		Steps              []int     `json:"steps"`
+		Members            []int     `json:"members,omitempty"`
+		IsEnsemble         bool      `json:"is_ensemble,omitempty"`
+		StoreMembers       *bool     `json:"store_members,omitempty"`
+		FullEnsembleStored *bool     `json:"full_ensemble_stored,omitempty"`
+		Variables          []string  `json:"variables"`
+		LatStart           float64   `json:"lat_start"`
+		LatEnd             float64   `json:"lat_end"`
+		LatStep            float64   `json:"lat_step"`
+		LonStart           float64   `json:"lon_start"`
+		LonEnd             float64   `json:"lon_end"`
+		LonStep            float64   `json:"lon_step"`
+		NLats              int       `json:"nlats"`
+		NLons              int       `json:"nlons"`
+		ChunkLat           int       `json:"chunk_lat"`
+		ChunkLon           int       `json:"chunk_lon"`
 	}
 
 	metaBytes, err := os.ReadFile(metaPath)
@@ -125,25 +128,42 @@ func OpenStore(dir string) (*Store, error) {
 		members = []int{0}
 	}
 
+	storeMembers := false
+	if cycleMeta.StoreMembers != nil {
+		storeMembers = *cycleMeta.StoreMembers
+	} else if cycleMeta.FullEnsembleStored != nil {
+		storeMembers = *cycleMeta.FullEnsembleStored
+	} else if cycleMeta.IsEnsemble || len(members) > 1 {
+		// Fallback check for legacy 4D chunk files
+		testVar := "wind_u_10m"
+		if len(cycleMeta.Variables) > 0 {
+			testVar = cycleMeta.Variables[0]
+		}
+		if _, err := os.Stat(filepath.Join(dir, testVar, "0.0.0.0")); err == nil {
+			storeMembers = true
+		}
+	}
+
 	return &Store{
-		RootDir:     dir,
-		Cycle:       cycleMeta.ReferenceTime,
-		Steps:       cycleMeta.Steps,
-		Members:     members,
-		IsEnsemble:  cycleMeta.IsEnsemble || len(members) > 1,
-		NMembers:    len(members),
-		Lats:        lats,
-		Lons:        lons,
-		LatStep:     cycleMeta.LatStep,
-		LonStep:     cycleMeta.LonStep,
-		Variables:   cycleMeta.Variables,
-		ChunkLat:    chunkLat,
-		ChunkLon:    chunkLon,
-		NLats:       cycleMeta.NLats,
-		NLons:       cycleMeta.NLons,
-		NSteps:      len(cycleMeta.Steps),
-		chunkCache:  make(map[string][]float32, 1024),
-		maxCacheLen: 4096,
+		RootDir:      dir,
+		Cycle:        cycleMeta.ReferenceTime,
+		Steps:        cycleMeta.Steps,
+		Members:      members,
+		IsEnsemble:   cycleMeta.IsEnsemble || len(members) > 1,
+		StoreMembers: storeMembers,
+		NMembers:     len(members),
+		Lats:         lats,
+		Lons:         lons,
+		LatStep:      cycleMeta.LatStep,
+		LonStep:      cycleMeta.LonStep,
+		Variables:    cycleMeta.Variables,
+		ChunkLat:     chunkLat,
+		ChunkLon:     chunkLon,
+		NLats:        cycleMeta.NLats,
+		NLons:        cycleMeta.NLons,
+		NSteps:       len(cycleMeta.Steps),
+		chunkCache:   make(map[string][]float32, 1024),
+		maxCacheLen:  4096,
 	}, nil
 }
 
@@ -227,6 +247,13 @@ func (s *Store) GetMemberPointTimeSeries(variable string, memberIdx, latIdx, lon
 		return nil, fmt.Errorf("grid index out of bounds: lat=%d (max %d), lon=%d (max %d)", latIdx, s.NLats, lonIdx, s.NLons)
 	}
 
+	if !s.StoreMembers {
+		if memberIdx == 0 {
+			return s.GetPointTimeSeries(variable, latIdx, lonIdx)
+		}
+		return nil, fmt.Errorf("individual ensemble members not stored on disk for model at %s (only statistical summaries stored); enable STORE_FULL_ENSEMBLE to store full member data", s.RootDir)
+	}
+
 	cLat := latIdx / s.ChunkLat
 	cLon := lonIdx / s.ChunkLon
 	cacheKey := fmt.Sprintf("%s/0.%d.%d.%d", variable, memberIdx, cLat, cLon)
@@ -291,6 +318,10 @@ func (s *Store) GetMemberPointTimeSeries(variable string, memberIdx, latIdx, lon
 // GetAllMembersPointTimeSeries extracts time series for all ensemble members at a specific coordinate.
 // Returns [NMembers][NSteps]float32.
 func (s *Store) GetAllMembersPointTimeSeries(variable string, latIdx, lonIdx int) ([][]float32, error) {
+	if !s.StoreMembers {
+		return nil, fmt.Errorf("individual ensemble members not stored on disk for model at %s (only statistical summaries stored); enable STORE_FULL_ENSEMBLE to store full member data", s.RootDir)
+	}
+
 	nMembers := len(s.Members)
 	if nMembers <= 1 {
 		ts, err := s.GetPointTimeSeries(variable, latIdx, lonIdx)
@@ -331,15 +362,16 @@ type StoreWriter struct {
 	lonStart   float64
 	lonEnd     float64
 	lonStep    float64
-	nlats      int
-	nlons      int
-	chunkLat   int
-	chunkLon   int
-	variables  []string
+	nlats             int
+	nlons             int
+	chunkLat          int
+	chunkLon          int
+	variables         []string
+	storeFullEnsemble bool
 }
 
 // NewStoreWriter initializes a staging Zarr directory.
-func NewStoreWriter(dir string, cycle *model.ModelCycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep float64, variables []string) (*StoreWriter, error) {
+func NewStoreWriter(dir string, cycle *model.ModelCycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep float64, variables []string, storeFullEnsemble bool) (*StoreWriter, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create zarr dir: %w", err)
 	}
@@ -369,24 +401,25 @@ func NewStoreWriter(dir string, cycle *model.ModelCycle, latStart, latEnd, latSt
 	}
 
 	sw := &StoreWriter{
-		dir:        dir,
-		slicesDir:  slicesDir,
-		cycle:      cycle,
-		stepMap:    stepMap,
-		steps:      cycle.ForecastSteps,
-		members:    members,
-		isEnsemble: cycle.IsEnsemble || len(members) > 1,
-		latStart:   latStart,
-		latEnd:     latEnd,
-		latStep:    latStep,
-		lonStart:   lonStart,
-		lonEnd:     lonEnd,
-		lonStep:    lonStep,
-		nlats:      nlats,
-		nlons:      nlons,
-		chunkLat:   DefaultChunkLat,
-		chunkLon:   DefaultChunkLon,
-		variables:  variables,
+		dir:               dir,
+		slicesDir:         slicesDir,
+		cycle:             cycle,
+		stepMap:           stepMap,
+		steps:             cycle.ForecastSteps,
+		members:           members,
+		isEnsemble:        cycle.IsEnsemble || len(members) > 1,
+		latStart:          latStart,
+		latEnd:            latEnd,
+		latStep:           latStep,
+		lonStart:          lonStart,
+		lonEnd:            lonEnd,
+		lonStep:           lonStep,
+		nlats:             nlats,
+		nlons:             nlons,
+		chunkLat:          DefaultChunkLat,
+		chunkLon:          DefaultChunkLon,
+		variables:         variables,
+		storeFullEnsemble: storeFullEnsemble,
 	}
 
 	return sw, nil
@@ -487,19 +520,35 @@ func (sw *StoreWriter) Finalize() error {
 		}
 
 		if sw.isEnsemble && nMembers > 1 {
-			// Strategy B: 4D array [nSteps, nMembers, nlats, nlons]
-			meta4D := ZArrayMeta{
-				ZarrFormat: 2,
-				Shape:      []int{nSteps, nMembers, sw.nlats, sw.nlons},
-				Chunks:     []int{nSteps, 1, sw.chunkLat, sw.chunkLon},
-				DType:      "<f4",
-				Order:      "C",
-				FillValue:  "NaN",
+			if sw.storeFullEnsemble {
+				// Strategy B: 4D array [nSteps, nMembers, nlats, nlons]
+				meta4D := ZArrayMeta{
+					ZarrFormat: 2,
+					Shape:      []int{nSteps, nMembers, sw.nlats, sw.nlons},
+					Chunks:     []int{nSteps, 1, sw.chunkLat, sw.chunkLon},
+					DType:      "<f4",
+					Order:      "C",
+					FillValue:  "NaN",
+				}
+				meta4D.Compressor.ID = "zstd"
+				meta4D.Compressor.Level = 3
+				metaJSON4D, _ := json.MarshalIndent(meta4D, "", "  ")
+				_ = os.WriteFile(filepath.Join(varDir, ".zarray"), metaJSON4D, 0644)
+			} else {
+				// Statistical 3D array for canonical variable (stores ensemble mean) [nSteps, nlats, nlons]
+				meta3D := ZArrayMeta{
+					ZarrFormat: 2,
+					Shape:      []int{nSteps, sw.nlats, sw.nlons},
+					Chunks:     []int{nSteps, sw.chunkLat, sw.chunkLon},
+					DType:      "<f4",
+					Order:      "C",
+					FillValue:  "NaN",
+				}
+				meta3D.Compressor.ID = "zstd"
+				meta3D.Compressor.Level = 3
+				metaJSON3D, _ := json.MarshalIndent(meta3D, "", "  ")
+				_ = os.WriteFile(filepath.Join(varDir, ".zarray"), metaJSON3D, 0644)
 			}
-			meta4D.Compressor.ID = "zstd"
-			meta4D.Compressor.Level = 3
-			metaJSON4D, _ := json.MarshalIndent(meta4D, "", "  ")
-			_ = os.WriteFile(filepath.Join(varDir, ".zarray"), metaJSON4D, 0644)
 
 			// Strategy A: Precomputed statistics 3D arrays [nSteps, nlats, nlons]
 			statsDirs := []string{
@@ -596,34 +645,36 @@ func (sw *StoreWriter) Finalize() error {
 				lonBase := cLon * sw.chunkLon
 
 				if sw.isEnsemble && nMembers > 1 {
-					// 1. Strategy B: Write 4D chunks per member: 0.m.cLat.cLon
-					for mIdx := range sw.members {
-						chunkBuf := make([]byte, chunkSize*4)
-						chunkFloatIdx := 0
-						var hasValidData bool
+					// 1. Write 4D chunks per member ONLY if storeFullEnsemble is enabled
+					if sw.storeFullEnsemble {
+						for mIdx := range sw.members {
+							chunkBuf := make([]byte, chunkSize*4)
+							chunkFloatIdx := 0
+							var hasValidData bool
 
-						for stepIdx := 0; stepIdx < nSteps; stepIdx++ {
-							for dLat := 0; dLat < sw.chunkLat; dLat++ {
-								latInBand := dLat
-								for dLon := 0; dLon < sw.chunkLon; dLon++ {
-									lon := lonBase + dLon
-									var val float32 = float32(math.NaN())
-									if latInBand < nBandLats && lon < sw.nlons {
-										val = bandData[stepIdx][mIdx][latInBand*sw.nlons+lon]
-										if !math.IsNaN(float64(val)) {
-											hasValidData = true
+							for stepIdx := 0; stepIdx < nSteps; stepIdx++ {
+								for dLat := 0; dLat < sw.chunkLat; dLat++ {
+									latInBand := dLat
+									for dLon := 0; dLon < sw.chunkLon; dLon++ {
+										lon := lonBase + dLon
+										var val float32 = float32(math.NaN())
+										if latInBand < nBandLats && lon < sw.nlons {
+											val = bandData[stepIdx][mIdx][latInBand*sw.nlons+lon]
+											if !math.IsNaN(float64(val)) {
+												hasValidData = true
+											}
 										}
+										binary.LittleEndian.PutUint32(chunkBuf[chunkFloatIdx*4:(chunkFloatIdx+1)*4], math.Float32bits(val))
+										chunkFloatIdx++
 									}
-									binary.LittleEndian.PutUint32(chunkBuf[chunkFloatIdx*4:(chunkFloatIdx+1)*4], math.Float32bits(val))
-									chunkFloatIdx++
 								}
 							}
-						}
 
-						if hasValidData {
-							compressed := CompressZstd(chunkBuf[:chunkFloatIdx*4])
-							chunkPath := filepath.Join(varDir, fmt.Sprintf("0.%d.%d.%d", sw.members[mIdx], cLat, cLon))
-							_ = os.WriteFile(chunkPath, compressed, 0644)
+							if hasValidData {
+								compressed := CompressZstd(chunkBuf[:chunkFloatIdx*4])
+								chunkPath := filepath.Join(varDir, fmt.Sprintf("0.%d.%d.%d", sw.members[mIdx], cLat, cLon))
+								_ = os.WriteFile(chunkPath, compressed, 0644)
+							}
 						}
 					}
 
@@ -904,6 +955,7 @@ func (sw *StoreWriter) Finalize() error {
 		Steps         []int     `json:"steps"`
 		Members       []int     `json:"members,omitempty"`
 		IsEnsemble    bool      `json:"is_ensemble,omitempty"`
+		StoreMembers  bool      `json:"store_members"`
 		Variables     []string  `json:"variables"`
 		LatStart      float64   `json:"lat_start"`
 		LatEnd        float64   `json:"lat_end"`
@@ -922,6 +974,7 @@ func (sw *StoreWriter) Finalize() error {
 		Steps:         sw.steps,
 		Members:       sw.members,
 		IsEnsemble:    sw.isEnsemble,
+		StoreMembers:  sw.storeFullEnsemble && sw.isEnsemble,
 		Variables:     finalVarList,
 		LatStart:      sw.latStart,
 		LatEnd:        sw.latEnd,
