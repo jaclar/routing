@@ -191,12 +191,21 @@ export interface EnsembleComparison {
   members?: MemberOutcome[];
 }
 
+export interface UncertaintyEnvelope {
+  left_boundary?: Point[];
+  right_boundary?: Point[];
+  polygon: Point[];
+  confidence_level?: string;
+  max_lateral_nm?: number;
+}
+
 export interface WaypointConfidence {
   index: number;
   time: string;
   score: number;
   score_strategy_a: number;
-  score_strategy_b: number;
+  score_strategy_b?: number;
+  lateral_uncertainty_nm?: number;
   wind_speed_mean_kts: number;
   wind_speed_std_kts: number;
   wind_speed_p10_kts: number;
@@ -204,10 +213,10 @@ export interface WaypointConfidence {
   wind_dir_spread_deg: number;
   gale_probability: number;
   strong_wind_probability: number;
-  member_speed_mean_kts: number;
-  member_speed_std_kts: number;
-  member_speed_p10_kts: number;
-  member_speed_p90_kts: number;
+  member_speed_mean_kts?: number;
+  member_speed_std_kts?: number;
+  member_speed_p10_kts?: number;
+  member_speed_p90_kts?: number;
 }
 
 export interface StatisticalComparison {
@@ -222,13 +231,14 @@ export interface RouteConfidence {
   overall_score: number;
   category: 'Very High' | 'High' | 'Moderate' | 'Low' | 'High Uncertainty' | string;
   score_strategy_a: number;
-  score_strategy_b: number;
-  agreement_score: number;
+  score_strategy_b?: number;
+  agreement_score?: number;
   model_id: string;
   num_members: number;
   waypoints: WaypointConfidence[];
   statistical_comparison?: StatisticalComparison;
   ensemble_comparison?: EnsembleComparison;
+  uncertainty_envelope?: UncertaintyEnvelope;
 }
 
 export interface Waypoint {
@@ -255,6 +265,7 @@ export interface Waypoint {
   wind_speed_p90_kts?: number;
   wind_dir_spread_deg?: number;
   gale_probability?: number;
+  lateral_uncertainty_nm?: number;
 }
 
 export interface IsochroneWave {

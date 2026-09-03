@@ -570,50 +570,53 @@ export const MapView: React.FC<MapViewProps> = ({
         });
       }
 
-      // B. Draw Ensemble Member Trajectories (Grey Spaghetti Plot)
-      if (isActive && r.confidence?.ensemble_comparison?.members) {
-        r.confidence.ensemble_comparison.members.forEach((m) => {
-          if (m.trajectory && m.trajectory.length > 1) {
-            const trajCoords = m.trajectory.map((pt) => [pt.lat, pt.lon] as [number, number]);
-            allCoords.push(...trajCoords);
-            const memberLine = L.polyline(trajCoords, {
-              color: '#94a3b8',
-              weight: 1.4,
-              opacity: 0.50,
-              dashArray: '3, 4',
-              lineCap: 'round',
-            });
+      // B. Draw Route Uncertainty Envelope Corridor
+      if (isActive && r.confidence?.uncertainty_envelope?.polygon && r.confidence.uncertainty_envelope.polygon.length > 2) {
+        const envCoords = r.confidence.uncertainty_envelope.polygon.map(
+          (pt) => [pt.lat, pt.lon] as [number, number]
+        );
+        allCoords.push(...envCoords);
 
-            memberLine.on('mouseover', () => {
-              memberLine.setStyle({
-                color: '#38bdf8',
-                weight: 2.8,
-                opacity: 0.95,
-              });
-              memberLine.bringToFront();
-            });
-
-            memberLine.on('mouseout', () => {
-              memberLine.setStyle({
-                color: '#94a3b8',
-                weight: 1.4,
-                opacity: 0.50,
-              });
-            });
-
-            memberLine.bindTooltip(
-              `<div style="font-family: var(--font-sans); font-size: 11px; line-height: 1.4;">
-                 <b style="color:#38bdf8;">Ensemble Member #${m.member_id + 1} (Optimal Isochrone Track)</b><br/>
-                 Solved Duration: <b>${m.total_duration_hours.toFixed(1)} hrs</b> (${(m.total_duration_hours / 24).toFixed(1)} d)<br/>
-                 Distance: <b>${(m.total_distance_nm ?? r.total_distance_nm).toFixed(1)} NM</b> (Avg ${m.average_speed_kts.toFixed(1)} kts)<br/>
-                 Peak Wind: <b>${m.max_wind_kts.toFixed(1)} kts</b>${m.total_tacks !== undefined ? ` | Tacks: ${m.total_tacks}` : ''}
-               </div>`,
-              { sticky: true }
-            );
-
-            ensGroup?.addLayer(memberLine);
-          }
+        const envelopePolygon = L.polygon(envCoords, {
+          color: '#38bdf8',
+          weight: 1.2,
+          opacity: 0.45,
+          dashArray: '4, 4',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.12,
         });
+
+        envelopePolygon.on('mouseover', () => {
+          envelopePolygon.setStyle({
+            fillOpacity: 0.22,
+            weight: 1.8,
+            opacity: 0.75,
+          });
+        });
+
+        envelopePolygon.on('mouseout', () => {
+          envelopePolygon.setStyle({
+            fillOpacity: 0.12,
+            weight: 1.2,
+            opacity: 0.45,
+          });
+        });
+
+        const maxLatNM = r.confidence.uncertainty_envelope.max_lateral_nm
+          ? `Max corridor width: <b>±${r.confidence.uncertainty_envelope.max_lateral_nm.toFixed(1)} NM</b><br/>`
+          : '';
+
+        envelopePolygon.bindTooltip(
+          `<div style="font-family: var(--font-sans); font-size: 11px; line-height: 1.4;">
+             <b style="color:#38bdf8;">Route Uncertainty Envelope</b><br/>
+             Confidence: <b>${r.confidence.overall_score.toFixed(0)}% (${r.confidence.category})</b><br/>
+             ${maxLatNM}
+             Corridor accounts for NWP directional spread and forecast lead time.
+           </div>`,
+          { sticky: true }
+        );
+
+        ensGroup?.addLayer(envelopePolygon);
       }
 
       group.addLayer(polyline);

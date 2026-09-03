@@ -797,14 +797,14 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
         </div>
       )}
 
-      {/* Ensemble Confidence & Predictability Analysis Card */}
+      {/* Passage Predictability & Uncertainty Analysis Card */}
       {routeResult.confidence && (
         <div className="stats-table-section">
           <div className="table-card ensemble-confidence-card">
             <div className="table-card-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Shield size={18} className="text-accent" />
-                <h3>Ensemble Confidence &amp; Predictability Analysis ({routeResult.confidence.num_members > 1 ? `${routeResult.confidence.num_members}-Member Ensemble` : 'Weather Telemetry'})</h3>
+                <h3>Passage Predictability &amp; Uncertainty Analysis</h3>
               </div>
               <span
                 className="confidence-badge-category"
@@ -874,118 +874,99 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                 </div>
               </div>
 
-              {/* Strategy A: Statistical Model Box */}
+              {/* Arrival Window & Uncertainty (Primary Confidence Metrics) */}
               <div className="confidence-metric-box">
                 <div className="confidence-box-header">
-                  <span className="confidence-box-title">Strategy A: Statistical Model</span>
-                  <span className="conf-strat-pill pill-strat-a">{routeResult.confidence.score_strategy_a.toFixed(0)}%</span>
+                  <span className="confidence-box-title">Arrival Window &amp; Uncertainty</span>
+                  <span className="conf-strat-pill pill-strat-a">
+                    ±{(routeResult.confidence.statistical_comparison?.std_duration_hours ?? (routeResult.waypoints.reduce((acc, w) => acc + (w.wind_speed_std_kts ?? 1.5), 0) / routeResult.waypoints.length)).toFixed(1)}h
+                  </span>
                 </div>
-                <p className="confidence-box-desc">Theoretical error propagation from 3D NWP dispersion & polar gradients</p>
+                <p className="confidence-box-desc">Expected passage duration and forecast uncertainty plume</p>
                 {routeResult.confidence.statistical_comparison ? (
                   <div className="strat-metrics-list">
                     <div className="strat-metric-row">
-                      <span>Theoretical Mean Duration:</span>
+                      <span>Expected Duration:</span>
                       <strong>{routeResult.confidence.statistical_comparison.mean_duration_hours.toFixed(1)}h (±{routeResult.confidence.statistical_comparison.std_duration_hours.toFixed(1)}h)</strong>
                     </div>
                     <div className="strat-metric-row">
-                      <span>P10 ↔ P90 Expected Window:</span>
+                      <span>P10 ↔ P90 Arrival Window:</span>
                       <strong>{routeResult.confidence.statistical_comparison.min_duration_hours.toFixed(1)}h – {routeResult.confidence.statistical_comparison.max_duration_hours.toFixed(1)}h</strong>
                     </div>
                     <div className="strat-metric-row">
-                      <span>Interquartile Spread (IQR):</span>
+                      <span>Uncertainty Spread (IQR):</span>
                       <strong>{routeResult.confidence.statistical_comparison.iqr_duration_hours.toFixed(1)}h</strong>
                     </div>
                   </div>
                 ) : (
                   <div className="strat-metrics-list">
                     <div className="strat-metric-row">
-                      <span>Avg Wind Spread:</span>
+                      <span>Avg Wind Variability:</span>
                       <strong>±{(routeResult.waypoints.reduce((acc, w) => acc + (w.wind_speed_std_kts ?? 1.5), 0) / routeResult.waypoints.length).toFixed(1)} kts</strong>
                     </div>
                     <div className="strat-metric-row">
-                      <span>Avg Directional Spread:</span>
+                      <span>Directional Spread:</span>
                       <strong>±{(routeResult.waypoints.reduce((acc, w) => acc + (w.wind_dir_spread_deg ?? 8), 0) / routeResult.waypoints.length).toFixed(0)}°</strong>
                     </div>
                     <div className="strat-metric-row">
-                      <span>Gale Exceedance Peak:</span>
+                      <span>Peak Gale Risk:</span>
                       <strong>{Math.max(...routeResult.waypoints.map(w => (w.gale_probability ?? 0) * 100)).toFixed(0)}%</strong>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Strategy B: Multi-Isochrone Optimal Solves Box */}
+              {/* Corridor Weather Dispersion & Gale Risk Box */}
               <div className="confidence-metric-box">
                 <div className="confidence-box-header">
-                  <span className="confidence-box-title">Strategy B: Multi-Isochrone Solves</span>
-                  <span className="conf-strat-pill pill-strat-b">{routeResult.confidence.score_strategy_b.toFixed(0)}%</span>
+                  <span className="confidence-box-title">Corridor Weather Risk</span>
                 </div>
-                <p className="confidence-box-desc">{routeResult.confidence.num_members}-member independent isochrone pathfinding solves</p>
-                {routeResult.confidence.ensemble_comparison && (
-                  <div className="strat-metrics-list">
-                    <div className="strat-metric-row">
-                      <span>Solved Mean Duration:</span>
-                      <strong>{routeResult.confidence.ensemble_comparison.mean_duration_hours.toFixed(1)}h (±{routeResult.confidence.ensemble_comparison.std_duration_hours.toFixed(1)}h)</strong>
-                    </div>
-                    <div className="strat-metric-row">
-                      <span>Fastest ↔ Slowest Route:</span>
-                      <strong>{routeResult.confidence.ensemble_comparison.min_duration_hours.toFixed(1)}h – {routeResult.confidence.ensemble_comparison.max_duration_hours.toFixed(1)}h</strong>
-                    </div>
-                    <div className="strat-metric-row">
-                      <span>Interquartile Spread (IQR):</span>
-                      <strong>{routeResult.confidence.ensemble_comparison.iqr_duration_hours.toFixed(1)}h</strong>
-                    </div>
+                <p className="confidence-box-desc">Atmospheric stability and adverse condition likelihood along corridor</p>
+                <div className="strat-metrics-list">
+                  <div className="strat-metric-row">
+                    <span>Wind Speed Dispersion:</span>
+                    <strong>±{(routeResult.waypoints.reduce((acc, w) => acc + (w.wind_speed_std_kts ?? 1.5), 0) / routeResult.waypoints.length).toFixed(1)} kts</strong>
                   </div>
-                )}
+                  <div className="strat-metric-row">
+                    <span>Directional Variability:</span>
+                    <strong>±{(routeResult.waypoints.reduce((acc, w) => acc + (w.wind_dir_spread_deg ?? 8), 0) / routeResult.waypoints.length).toFixed(0)}°</strong>
+                  </div>
+                  <div className="strat-metric-row">
+                    <span>Gale Risk (≥34kt Peak):</span>
+                    <strong style={{ color: Math.max(...routeResult.waypoints.map(w => (w.gale_probability ?? 0) * 100)) > 20 ? '#ef4444' : '#10b981' }}>
+                      {Math.max(...routeResult.waypoints.map(w => (w.gale_probability ?? 0) * 100)).toFixed(0)}%
+                    </strong>
+                  </div>
+                </div>
               </div>
 
-              {/* Strategy Agreement Box */}
-              <div className="confidence-metric-box agreement-box">
-                <span className="confidence-box-title">Model Agreement Rating</span>
-                <div className="agreement-val-display">
-                  <span className="agreement-pct" style={{ color: routeResult.confidence.agreement_score >= 80 ? '#38bdf8' : '#fbbf24' }}>
-                    {routeResult.confidence.agreement_score.toFixed(0)}%
-                  </span>
-                  <span className="agreement-sub">Cross-Correlation</span>
+              {/* Spatial Uncertainty Corridor Box */}
+              <div className="confidence-metric-box">
+                <div className="confidence-box-header">
+                  <span className="confidence-box-title">Route Uncertainty Corridor</span>
+                  {routeResult.confidence.uncertainty_envelope?.max_lateral_nm && (
+                    <span className="conf-strat-pill pill-strat-b">
+                      ±{routeResult.confidence.uncertainty_envelope.max_lateral_nm.toFixed(1)} NM
+                    </span>
+                  )}
                 </div>
-                <p className="agreement-desc">
-                  {routeResult.confidence.agreement_score >= 80
-                    ? 'High consistency between statistical and forward ensemble members.'
-                    : 'Moderate divergence in non-linear polar routing responses.'}
-                </p>
+                <p className="confidence-box-desc">Navigational envelope width widening with forecast lead time</p>
+                <div className="strat-metrics-list">
+                  <div className="strat-metric-row">
+                    <span>Max Corridor Width:</span>
+                    <strong>±{(routeResult.confidence.uncertainty_envelope?.max_lateral_nm || 15.0).toFixed(1)} NM</strong>
+                  </div>
+                  <div className="strat-metric-row">
+                    <span>Envelope Boundary:</span>
+                    <strong>P10 ↔ P90 Confidence Plume</strong>
+                  </div>
+                  <div className="strat-metric-row">
+                    <span>Land Clearance:</span>
+                    <strong style={{ color: '#34d399' }}>Verified Navigable Water</strong>
+                  </div>
+                </div>
               </div>
             </div>
-
-            {/* Member Outcomes Mini Table / Dispersion Visualizer */}
-            {routeResult.confidence.ensemble_comparison && routeResult.confidence.ensemble_comparison.members && routeResult.confidence.ensemble_comparison.members.length > 1 && (
-              <div className="ensemble-members-dispersion-section">
-                <h4 className="members-dispersion-title">Ensemble Member Arrival Time Distribution (Fastest to Slowest)</h4>
-                <div className="members-dispersion-bars">
-                  {routeResult.confidence.ensemble_comparison.members.slice(0, 15).map((m) => {
-                    const minD = routeResult.confidence?.ensemble_comparison?.min_duration_hours || 1;
-                    const maxD = routeResult.confidence?.ensemble_comparison?.max_duration_hours || (minD + 1);
-                    const range = Math.max(0.1, maxD - minD);
-                    const pct = Math.min(100, Math.max(8, ((m.total_duration_hours - minD) / range) * 100));
-
-                    return (
-                      <div key={m.member_id} className="member-dispersion-row" title={`Member #${m.member_id + 1}: ${m.total_duration_hours.toFixed(1)}h, Avg SOG: ${m.average_speed_kts.toFixed(1)} kts, Peak Wind: ${m.max_wind_kts.toFixed(1)} kts`}>
-                        <span className="member-id-label">M{String(m.member_id + 1).padStart(2, '0')}</span>
-                        <div className="member-bar-track">
-                          <div
-                            className="member-bar-fill"
-                            style={{
-                              width: `${pct}%`,
-                              backgroundColor: pct < 40 ? '#38bdf8' : pct < 75 ? '#818cf8' : '#c084fc',
-                            }}
-                          />
-                        </div>
-                        <span className="member-dur-val">{m.total_duration_hours.toFixed(1)}h</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}

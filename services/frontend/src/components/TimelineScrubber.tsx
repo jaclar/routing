@@ -378,7 +378,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
               backgroundColor: currentConfBg,
               borderColor: currentConfBorder,
             }}
-            title={`Waypoint Predictability: ${currentConfScore.toFixed(0)}%\n• Strategy A (Statistical): ${(currentWaypoint.confidence_score_a ?? currentConfScore).toFixed(0)}%\n• Strategy B (Member Sim): ${(currentWaypoint.confidence_score_b ?? currentConfScore).toFixed(0)}%\n• Wind Speed Spread: ±${(currentWaypoint.wind_speed_std_kts ?? 1.5).toFixed(1)} kt (P10: ${(currentWaypoint.wind_speed_p10_kts ?? currentWaypoint.tws_kts).toFixed(1)}k, P90: ${(currentWaypoint.wind_speed_p90_kts ?? currentWaypoint.tws_kts).toFixed(1)}k)\n• Wind Direction Spread: ±${(currentWaypoint.wind_dir_spread_deg ?? 8).toFixed(0)}°\n• Gale Risk: ${((currentWaypoint.gale_probability ?? 0) * 100).toFixed(0)}%`}
+            title={`Waypoint Confidence: ${currentConfScore.toFixed(0)}%\n• Wind Speed Uncertainty: ±${(currentWaypoint.wind_speed_std_kts ?? 1.5).toFixed(1)} kt (P10: ${(currentWaypoint.wind_speed_p10_kts ?? currentWaypoint.tws_kts).toFixed(1)}k, P90: ${(currentWaypoint.wind_speed_p90_kts ?? currentWaypoint.tws_kts).toFixed(1)}k)\n• Wind Direction Spread: ±${(currentWaypoint.wind_dir_spread_deg ?? 8).toFixed(0)}°\n• Gale Risk: ${((currentWaypoint.gale_probability ?? 0) * 100).toFixed(0)}%`}
           >
             <Shield size={13} color={currentConfColor} />
             <span className="confidence-score-val" style={{ color: currentConfColor }}>
