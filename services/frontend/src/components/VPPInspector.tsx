@@ -14,6 +14,7 @@ import {
   parseAndValidateBoatJSON,
   parsePolFile,
 } from '../services/api';
+import { usePersistedState } from '../services/persistence';
 import { CustomBoatBuilderModal } from './CustomBoatBuilderModal';
 import {
   Anchor,
@@ -54,8 +55,11 @@ export const VPPInspector: React.FC<VPPInspectorProps> = ({
 }) => {
   const [boatDetail, setBoatDetail] = useState<BoatDetail | null>(null);
   const [polarData, setPolarData] = useState<SolveMatrixResponse | null>(null);
-  const [activePlotTab, setActivePlotTab] = useState<'polar' | 'curves' | 'resistance'>('polar');
-  const [heelAngle, setHeelAngle] = useState<number>(15);
+  const [activePlotTab, setActivePlotTab] = usePersistedState<'polar' | 'curves' | 'resistance'>(
+    'vpp.activePlotTab',
+    'polar'
+  );
+  const [heelAngle, setHeelAngle] = usePersistedState<number>('vpp.heelAngle', 15);
   const [plotImages, setPlotImages] = useState<{
     polar?: string;
     curves?: string;

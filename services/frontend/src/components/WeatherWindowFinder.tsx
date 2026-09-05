@@ -12,6 +12,7 @@ import {
   ROUTE_PRESETS,
   calcDirectDistanceNM,
 } from '../services/api';
+import { usePersistedState, reviveDepartureTime } from '../services/persistence';
 import {
   POINT_OF_SAIL_METAS,
   getPointOfSail,
@@ -55,6 +56,26 @@ interface WeatherWindowFinderProps {
 type SortOption = 'departure' | 'comfort' | 'duration' | 'wind';
 type FilterOption = 'all' | 'no-gale' | 'high-comfort' | 'high-confidence';
 
+/** Start of the default search window: the current hour. */
+function defaultEarliestDeparture(): string {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  return d.toISOString().slice(0, 16);
+}
+
+/** End of the default search window: five days out. */
+function defaultLatestDeparture(): string {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  d.setDate(d.getDate() + 5);
+  return d.toISOString().slice(0, 16);
+}
+
+function isFutureDeparture(value: string): boolean {
+  const ms = Date.parse(`${value}:00Z`);
+  return Number.isFinite(ms) && ms > Date.now();
+}
+
 export const WeatherWindowFinder: React.FC<WeatherWindowFinderProps> = ({
   startPoint,
   destPoint,
@@ -66,33 +87,46 @@ export const WeatherWindowFinder: React.FC<WeatherWindowFinderProps> = ({
   onSelectWindowRoute,
   onOpenMapPlacement,
 }) => {
-  // Dates
-  const [earliestDeparture, setEarliestDeparture] = useState<string>(() => {
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    return d.toISOString().slice(0, 16);
-  });
+  // Dates. Both bounds are restored, but a bound that has already passed snaps forward: a search
+  // window ending in the past would return nothing and look broken.
+  const [earliestDeparture, setEarliestDeparture] = usePersistedState<string>(
+    'windowFinder.earliestDeparture',
+    defaultEarliestDeparture,
+    { revive: reviveDepartureTime }
+  );
 
-  const [hasEndDate, setHasEndDate] = useState<boolean>(true);
-  const [latestDeparture, setLatestDeparture] = useState<string>(() => {
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    d.setDate(d.getDate() + 5); // Default 5-day search window
-    return d.toISOString().slice(0, 16);
-  });
+  const [hasEndDate, setHasEndDate] = usePersistedState<boolean>('windowFinder.hasEndDate', true);
+  const [latestDeparture, setLatestDeparture] = usePersistedState<string>(
+    'windowFinder.latestDeparture',
+    defaultLatestDeparture,
+    { revive: (saved) => (isFutureDeparture(saved) ? saved : defaultLatestDeparture()) }
+  );
 
-  const [selectedModel, setSelectedModel] = useState<WeatherModelId>('gfs_0p25');
+  const [selectedModel, setSelectedModel] = usePersistedState<WeatherModelId>(
+    'windowFinder.selectedModel',
+    'gfs_0p25'
+  );
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Response data
-  const [windowResponse, setWindowResponse] = useState<WeatherWindowResponse | null>(null);
+  // Response data. Restored so returning to this view still shows the ranked departures the user
+  // was reading, rather than an empty table.
+  const [windowResponse, setWindowResponse] = usePersistedState<WeatherWindowResponse | null>(
+    'windowFinder.response',
+    null
+  );
 
   // View state: strictly table view, ordered chronologically by departure time
-  const [sortOption, setSortOption] = useState<SortOption>('departure');
-  const [filterOption, setFilterOption] = useState<FilterOption>('all');
-  const [selectedWindowIndex, setSelectedWindowIndex] = useState<number>(0);
-  const [expandedRowIndex, setExpandedRowIndex] = useState<number | null>(null);
+  const [sortOption, setSortOption] = usePersistedState<SortOption>('windowFinder.sort', 'departure');
+  const [filterOption, setFilterOption] = usePersistedState<FilterOption>('windowFinder.filter', 'all');
+  const [selectedWindowIndex, setSelectedWindowIndex] = usePersistedState<number>(
+    'windowFinder.selectedIndex',
+    0
+  );
+  const [expandedRowIndex, setExpandedRowIndex] = usePersistedState<number | null>(
+    'windowFinder.expandedRow',
+    null
+  );
 
   // Dynamic row positions for continuous single-path SVG comfort plot
   const tableRef = useRef<HTMLTableElement>(null);

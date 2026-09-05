@@ -3,6 +3,9 @@ export interface Point {
   lon: number;
 }
 
+/** How a waypoint move was initiated on the map. */
+export type WaypointChangeSource = 'click' | 'drag';
+
 export type WeatherModelId = 'gfs_0p25' | 'ifs_0p25' | 'icon_global' | string;
 
 export interface WeatherModelMeta {

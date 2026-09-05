@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MultiRouteResult, RouteResult, WEATHER_MODELS, WeatherModelId } from '../types';
 import { TimelineTable } from './TimelineTable';
+import { usePersistedState } from '../services/persistence';
+import { ModalPortal } from './ModalPortal';
 import {
   Play,
   Pause,
@@ -50,8 +52,12 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   loading,
   isRecalculateActive,
 }) => {
+  // Playback stays transient: a page that starts animating by itself on load is jarring.
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [speedMultiplier, setSpeedMultiplier] = useState<AnimationSpeed>(1);
+  const [speedMultiplier, setSpeedMultiplier] = usePersistedState<AnimationSpeed>(
+    'scrubber.speedMultiplier',
+    1
+  );
 
   // State for Departure Time Change Dialog Modal
   const [isDateModalOpen, setIsDateModalOpen] = useState<boolean>(false);
@@ -544,103 +550,91 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
         onIndexChange={onIndexChange}
       />
 
-      {/* Departure Time Change Modal Dialog */}
+      {/* Departure Time Change Modal Dialog.
+          Portalled to the body: this dock is a transformed, backdrop-filtered element, which would
+          otherwise become the containing block for the dialog's fixed-position backdrop and strand
+          it below the viewport. */}
       {isDateModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsDateModalOpen(false)}>
-          <div className="departure-time-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="departure-modal-header">
-              <div className="departure-modal-title">
-                <Calendar size={18} color="#38bdf8" />
-                <span>Change Departure Time (UTC)</span>
+        <ModalPortal onDismiss={() => setIsDateModalOpen(false)}>
+          <div className="modal-backdrop" onClick={() => setIsDateModalOpen(false)}>
+            <div
+              className="departure-time-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Change departure time"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="departure-modal-header">
+                <div className="departure-modal-title">
+                  <Calendar size={16} color="#38bdf8" />
+                  <span>Departure Time (UTC)</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-modal-close"
+                  onClick={() => setIsDateModalOpen(false)}
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button
-                type="button"
-                className="btn-modal-close"
-                onClick={() => setIsDateModalOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
 
-            <div className="departure-modal-body">
-              <p className="departure-modal-desc">
-                Select a new departure date and time in UTC. Updating will recalculate optimal routes across all available weather models (NOAA GFS, ECMWF IFS, DWD ICON).
-              </p>
-
-              <div className="input-group">
-                <label className="departure-modal-label">Departure Date &amp; Time (UTC)</label>
+              <div className="departure-modal-body">
                 <input
                   type="datetime-local"
                   className="input-field departure-datetime-input"
                   value={tempDepartureTime}
                   onChange={(e) => setTempDepartureTime(e.target.value)}
+                  aria-label="Departure date and time (UTC)"
                   autoFocus
                 />
-              </div>
 
-              {/* Quick Offset Shortcuts */}
-              <div className="quick-time-shortcuts">
-                <span className="shortcuts-label">Quick offsets:</span>
                 <div className="shortcuts-buttons">
                   <button
                     type="button"
                     className="btn-time-shortcut"
                     onClick={() => setTempDepartureTime(new Date().toISOString().slice(0, 16))}
                   >
-                    Now (UTC)
+                    Now
                   </button>
-                  <button
-                    type="button"
-                    className="btn-time-shortcut"
-                    onClick={() => adjustTempHours(6)}
-                  >
+                  <button type="button" className="btn-time-shortcut" onClick={() => adjustTempHours(-6)}>
+                    −6h
+                  </button>
+                  <button type="button" className="btn-time-shortcut" onClick={() => adjustTempHours(6)}>
                     +6h
                   </button>
-                  <button
-                    type="button"
-                    className="btn-time-shortcut"
-                    onClick={() => adjustTempHours(12)}
-                  >
+                  <button type="button" className="btn-time-shortcut" onClick={() => adjustTempHours(12)}>
                     +12h
                   </button>
-                  <button
-                    type="button"
-                    className="btn-time-shortcut"
-                    onClick={() => adjustTempHours(24)}
-                  >
+                  <button type="button" className="btn-time-shortcut" onClick={() => adjustTempHours(24)}>
                     +24h
                   </button>
-                  <button
-                    type="button"
-                    className="btn-time-shortcut"
-                    onClick={() => adjustTempHours(-6)}
-                  >
-                    -6h
-                  </button>
                 </div>
+
+                <p className="departure-modal-desc">Recalculates all weather models.</p>
+              </div>
+
+              <div className="departure-modal-footer">
+                <button
+                  type="button"
+                  className="btn-modal-cancel"
+                  onClick={() => setIsDateModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleApplyAndRecalculate}
+                  disabled={loading}
+                >
+                  <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
+                  <span>{loading ? 'Updating…' : 'Update'}</span>
+                </button>
               </div>
             </div>
-
-            <div className="departure-modal-footer">
-              <button
-                type="button"
-                className="btn-modal-cancel"
-                onClick={() => setIsDateModalOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleApplyAndRecalculate}
-                disabled={loading}
-              >
-                <RotateCw size={14} className={loading ? 'animate-spin' : ''} />
-                <span>{loading ? 'Updating...' : 'Update'}</span>
-              </button>
-            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import { SettingsView } from './components/SettingsView';
 import { VPPInspector } from './components/VPPInspector';
 import { PassageStatistics } from './components/PassageStatistics';
 import { WeatherWindowFinder } from './components/WeatherWindowFinder';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import {
   BoatPreset,
   DEFAULT_WEATHER_MODEL,
@@ -14,6 +15,7 @@ import {
   MultiRouteResult,
   Point,
   RouteResult,
+  WaypointChangeSource,
   WEATHER_MODELS,
   WeatherGridResponse,
   WeatherModelId,
@@ -31,6 +33,13 @@ import {
   deleteCustomBoatFromStorage,
 } from './services/api';
 import {
+  usePersistedState,
+  dropIsochrones,
+  dropIsochronesFromAll,
+  nowDepartureValue,
+  reviveDepartureTime,
+} from './services/persistence';
+import {
   Compass,
   Menu,
   X,
@@ -42,43 +51,60 @@ import {
 import './styles/App.css';
 
 export const App: React.FC = () => {
-  // Primary view mode: 'routing', 'settings', 'vpp', or 'window-finder'
-  const [activeView, setActiveView] = useState<'routing' | 'settings' | 'vpp' | 'window-finder'>('routing');
-  
+  // Navigation. Restored so a reload reopens the view the user was last on.
+  const [activeView, setActiveView] = usePersistedState<'routing' | 'settings' | 'vpp' | 'window-finder'>(
+    'activeView',
+    'routing'
+  );
+
   // Routing sub-tab: 'map' (Map View) or 'stats' (Passage Statistics) - ONLY shown in routing view
-  const [routingSubTab, setRoutingSubTab] = useState<'map' | 'stats'>('map');
-  
+  const [routingSubTab, setRoutingSubTab] = usePersistedState<'map' | 'stats'>('routingSubTab', 'map');
+
+  // Deliberately not persisted: a menu that reopens by itself on load is a nuisance.
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
 
-  const [placementMode, setPlacementMode] = useState<'start' | 'dest'>('start');
+  const [placementMode, setPlacementMode] = usePersistedState<'start' | 'dest'>('placementMode', 'start');
+  // Not persisted: refetched from the API, then merged with the separately stored custom boats.
   const [presets, setPresets] = useState<BoatPreset[]>([]);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('36ft-ketch');
+  const [selectedPresetId, setSelectedPresetId] = usePersistedState<string>('selectedPresetId', '36ft-ketch');
 
-  const [startPoint, setStartPoint] = useState<Point>(ROUTE_PRESETS[0].start);
-  const [destPoint, setDestPoint] = useState<Point>(ROUTE_PRESETS[0].dest);
-  const [departureTime, setDepartureTime] = useState<string>(
-    new Date().toISOString().slice(0, 16)
+  const [startPoint, setStartPoint] = usePersistedState<Point>('startPoint', ROUTE_PRESETS[0].start);
+  const [destPoint, setDestPoint] = usePersistedState<Point>('destPoint', ROUTE_PRESETS[0].dest);
+  const [departureTime, setDepartureTime] = usePersistedState<string>(
+    'departureTime',
+    nowDepartureValue,
+    { revive: reviveDepartureTime }
   );
-  const [timeStepHours, setTimeStepHours] = useState<number>(() => {
+  const [timeStepHours, setTimeStepHours] = usePersistedState<number>('timeStepHours', () => {
     const d = calcDirectDistanceNM(ROUTE_PRESETS[0].start, ROUTE_PRESETS[0].dest);
     return getSaneDefaultTimeStepHours(d);
   });
-  const [tackPenaltyMinutes, setTackPenaltyMinutes] = useState<number>(5.0);
-  const [gybePenaltyMinutes, setGybePenaltyMinutes] = useState<number>(8.0);
+  const [tackPenaltyMinutes, setTackPenaltyMinutes] = usePersistedState<number>('tackPenaltyMinutes', 5.0);
+  const [gybePenaltyMinutes, setGybePenaltyMinutes] = usePersistedState<number>('gybePenaltyMinutes', 8.0);
 
   const [loading, setLoading] = useState<boolean>(false);
-  const [activeModel, setActiveModel] = useState<WeatherModelId>(DEFAULT_WEATHER_MODEL);
-  const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
-  const [multiRouteResult, setMultiRouteResult] = useState<MultiRouteResult | null>(null);
-  const [currentWaypointIndex, setCurrentWaypointIndex] = useState<number>(0);
+  const [activeModel, setActiveModel] = usePersistedState<WeatherModelId>('activeModel', DEFAULT_WEATHER_MODEL);
 
+  // Computed routes are restored too, so the map comes back with the passage already on it.
+  // Isochrone geometry is shed first if storage runs out; see services/persistence.
+  const [routeResult, setRouteResult] = usePersistedState<RouteResult | null>('routeResult', null, {
+    shrink: [dropIsochrones],
+  });
+  const [multiRouteResult, setMultiRouteResult] = usePersistedState<MultiRouteResult | null>(
+    'multiRouteResult',
+    null,
+    { shrink: [dropIsochronesFromAll] }
+  );
+  const [currentWaypointIndex, setCurrentWaypointIndex] = usePersistedState<number>('currentWaypointIndex', 0);
+
+  // Not persisted: both are refetched for the restored waypoints and time on mount.
   const [weatherGrid, setWeatherGrid] = useState<WeatherGridResponse | null>(null);
   const [landmaskPolygons, setLandmaskPolygons] = useState<LandmaskPolygon[]>([]);
 
   // Layer Defaults: Active Wind & Barbs and Landmass Polygons enabled by default
-  const [showWindGrid, setShowWindGrid] = useState<boolean>(true);
-  const [showIsochrones, setShowIsochrones] = useState<boolean>(false);
-  const [showLandmask, setShowLandmask] = useState<boolean>(true);
+  const [showWindGrid, setShowWindGrid] = usePersistedState<boolean>('showWindGrid', true);
+  const [showIsochrones, setShowIsochrones] = usePersistedState<boolean>('showIsochrones', false);
+  const [showLandmask, setShowLandmask] = usePersistedState<boolean>('showLandmask', true);
 
   // Weather grid cache by model and timestamp
   const weatherCacheRef = useRef<Map<string, WeatherGridResponse>>(new Map());
@@ -162,8 +188,10 @@ export const App: React.FC = () => {
     loadWeatherForTime(activeTime, activeModel);
   }, [activeTime, activeModel, loadWeatherForTime]);
 
-  // Snapshot of parameters used when current routes were calculated
-  const [solvedParams, setSolvedParams] = useState<{
+  // Snapshot of parameters used when current routes were calculated. Persisted alongside the
+  // routes so the "needs recalculating" indicator stays truthful across a reload — in particular
+  // when a stale departure time was snapped forward on restore.
+  const [solvedParams, setSolvedParams] = usePersistedState<{
     start: Point;
     dest: Point;
     departureTime: string;
@@ -171,7 +199,18 @@ export const App: React.FC = () => {
     tackPenaltyMinutes: number;
     gybePenaltyMinutes: number;
     timeStepHours: number;
-  } | null>(null);
+  } | null>('solvedParams', null);
+
+  // A restored waypoint index can outrun the route it belongs to, if the route was shed under
+  // storage pressure or replaced by a shorter one. Keep it addressable.
+  useEffect(() => {
+    const waypointCount = routeResult?.waypoints.length ?? 0;
+    if (waypointCount === 0) {
+      if (currentWaypointIndex !== 0) setCurrentWaypointIndex(0);
+    } else if (currentWaypointIndex > waypointCount - 1) {
+      setCurrentWaypointIndex(waypointCount - 1);
+    }
+  }, [routeResult, currentWaypointIndex, setCurrentWaypointIndex]);
 
   const normalizeTimeStr = (t?: string) => {
     if (!t) return '';
@@ -282,14 +321,77 @@ export const App: React.FC = () => {
     weatherCacheRef.current.clear();
     const d = calcDirectDistanceNM(newStart, destPoint);
     setTimeStepHours(getSaneDefaultTimeStepHours(d));
-  }, [destPoint]);
+  }, [destPoint, setStartPoint, setTimeStepHours]);
 
   const handleDestPointChange = useCallback((newDest: Point) => {
     setDestPoint(newDest);
     weatherCacheRef.current.clear();
     const d = calcDirectDistanceNM(startPoint, newDest);
     setTimeStepHours(getSaneDefaultTimeStepHours(d));
-  }, [startPoint]);
+  }, [startPoint, setDestPoint, setTimeStepHours]);
+
+  // Waypoint moves made on the map. A solved route belongs to the waypoints it was solved for, so
+  // moving one discards it — confirm first, then hand back an uncalculated route.
+  const [pendingWaypointMove, setPendingWaypointMove] = useState<{
+    which: 'start' | 'dest';
+    point: Point;
+    source: WaypointChangeSource;
+  } | null>(null);
+
+  // Bumped when a move is declined. MapView redraws its markers from props, but declining changes
+  // no props, so without this nudge the dragged marker would stay at the rejected position.
+  const [waypointRevertNonce, setWaypointRevertNonce] = useState<number>(0);
+
+  const hasCalculatedRoute = Boolean(routeResult || multiRouteResult);
+
+  /** Clears everything derived from a solved route, leaving the inputs untouched. */
+  const resetRouteState = useCallback(() => {
+    setRouteResult(null);
+    setMultiRouteResult(null);
+    setSolvedParams(null);
+    setCurrentWaypointIndex(0);
+    weatherCacheRef.current.clear();
+  }, [setRouteResult, setMultiRouteResult, setSolvedParams, setCurrentWaypointIndex]);
+
+  const applyWaypointMove = useCallback(
+    (which: 'start' | 'dest', point: Point, source: WaypointChangeSource) => {
+      if (which === 'start') handleStartPointChange(point);
+      else handleDestPointChange(point);
+      // Click-to-place advances to the other waypoint, but only now that the move has stuck.
+      if (source === 'click') setPlacementMode(which === 'start' ? 'dest' : 'start');
+    },
+    [handleStartPointChange, handleDestPointChange, setPlacementMode]
+  );
+
+  // With nothing calculated there is nothing to lose, so the move applies straight away.
+  const requestMapStartChange = useCallback(
+    (point: Point, source: WaypointChangeSource) => {
+      if (!hasCalculatedRoute) return applyWaypointMove('start', point, source);
+      setPendingWaypointMove({ which: 'start', point, source });
+    },
+    [hasCalculatedRoute, applyWaypointMove]
+  );
+
+  const requestMapDestChange = useCallback(
+    (point: Point, source: WaypointChangeSource) => {
+      if (!hasCalculatedRoute) return applyWaypointMove('dest', point, source);
+      setPendingWaypointMove({ which: 'dest', point, source });
+    },
+    [hasCalculatedRoute, applyWaypointMove]
+  );
+
+  const confirmWaypointMove = useCallback(() => {
+    if (!pendingWaypointMove) return;
+    const { which, point, source } = pendingWaypointMove;
+    applyWaypointMove(which, point, source);
+    resetRouteState();
+    setPendingWaypointMove(null);
+  }, [pendingWaypointMove, applyWaypointMove, resetRouteState]);
+
+  const cancelWaypointMove = useCallback(() => {
+    setPendingWaypointMove(null);
+    setWaypointRevertNonce((n) => n + 1);
+  }, []);
 
   return (
     <div className="app-container">
@@ -469,10 +571,10 @@ export const App: React.FC = () => {
                 <MapView
                   startPoint={startPoint}
                   destPoint={destPoint}
-                  onStartChange={handleStartPointChange}
-                  onDestChange={handleDestPointChange}
+                  onStartChange={requestMapStartChange}
+                  onDestChange={requestMapDestChange}
+                  waypointRevertNonce={waypointRevertNonce}
                   placementMode={placementMode}
-                  onPlacementModeChange={setPlacementMode}
                   routeResult={routeResult}
                   multiRouteResult={multiRouteResult}
                   activeModel={activeModel}
@@ -657,6 +759,25 @@ export const App: React.FC = () => {
         )}
 
       </main>
+
+      {pendingWaypointMove && (
+        <ConfirmDialog
+          title={pendingWaypointMove.which === 'start' ? 'Move start point?' : 'Move finish point?'}
+          message={
+            <>
+              The calculated route was solved for the current waypoints and will be discarded.
+              You will need to calculate a new one.
+              <span className="confirm-dialog-coords">
+                New position: {pendingWaypointMove.point.lat.toFixed(4)}°,{' '}
+                {pendingWaypointMove.point.lon.toFixed(4)}°
+              </span>
+            </>
+          }
+          confirmLabel="Move and reset route"
+          onConfirm={confirmWaypointMove}
+          onCancel={cancelWaypointMove}
+        />
+      )}
     </div>
   );
 };

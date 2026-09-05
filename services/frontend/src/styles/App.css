@@ -3741,13 +3741,15 @@ body {
 .departure-time-modal {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 24px;
-  width: 90%;
-  max-width: 440px;
+  border-radius: 14px;
+  padding: 16px 18px;
+  width: 100%;
+  max-width: 360px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
   animation: modalScaleIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -3757,7 +3759,7 @@ body {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 12px;
+  padding-bottom: 10px;
 }
 
 .departure-modal-title {
@@ -3772,13 +3774,14 @@ body {
 .departure-modal-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .departure-modal-desc {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
-  line-height: 1.45;
+  line-height: 1.35;
+  margin: 0;
 }
 
 .departure-modal-label {
@@ -3837,9 +3840,71 @@ body {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border-top: 1px solid var(--border-color);
-  padding-top: 14px;
+  padding-top: 10px;
+}
+
+/* ==========================================================================
+   Confirmation Dialog
+   ========================================================================== */
+
+.confirm-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 18px;
+  width: 100%;
+  max-width: 380px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  animation: modalScaleIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.confirm-dialog-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.confirm-dialog-title {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: #f8fafc;
+}
+
+.confirm-dialog-message {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.confirm-dialog-coords {
+  display: block;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: #cbd5e1;
+}
+
+.confirm-dialog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
 }
 
 /* ==========================================================================

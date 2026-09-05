@@ -5,6 +5,7 @@ import {
   LandmaskPolygon,
   MultiRouteResult,
   Point,
+  WaypointChangeSource,
   RouteResult,
   WEATHER_MODELS,
   WeatherGridResponse,
@@ -22,10 +23,11 @@ L.Icon.Default.mergeOptions({
 interface MapViewProps {
   startPoint: Point;
   destPoint: Point;
-  onStartChange: (p: Point) => void;
-  onDestChange: (p: Point) => void;
+  onStartChange: (p: Point, source: WaypointChangeSource) => void;
+  onDestChange: (p: Point, source: WaypointChangeSource) => void;
+  /** Bump to force the markers back onto the current props, e.g. after a declined drag. */
+  waypointRevertNonce?: number;
   placementMode: 'start' | 'dest';
-  onPlacementModeChange: (mode: 'start' | 'dest') => void;
   routeResult: RouteResult | null;
   multiRouteResult?: MultiRouteResult | null;
   activeModel?: WeatherModelId;
@@ -215,8 +217,8 @@ export const MapView: React.FC<MapViewProps> = ({
   destPoint,
   onStartChange,
   onDestChange,
+  waypointRevertNonce = 0,
   placementMode,
-  onPlacementModeChange,
   routeResult,
   multiRouteResult,
   activeModel = 'gfs_0p25',
@@ -289,12 +291,12 @@ export const MapView: React.FC<MapViewProps> = ({
       const clickedLat = Number(e.latlng.lat.toFixed(4));
       const clickedLon = Number(e.latlng.lng.toFixed(4));
 
+      // Placement mode is advanced by the owner once the move is accepted, not here: a move
+      // that gets declined must leave the mode exactly as it was.
       if (placementMode === 'start') {
-        onStartChangeRef.current?.({ lat: clickedLat, lon: clickedLon });
-        onPlacementModeChange('dest');
+        onStartChangeRef.current?.({ lat: clickedLat, lon: clickedLon }, 'click');
       } else {
-        onDestChangeRef.current?.({ lat: clickedLat, lon: clickedLon });
-        onPlacementModeChange('start');
+        onDestChangeRef.current?.({ lat: clickedLat, lon: clickedLon }, 'click');
       }
     });
 
@@ -366,10 +368,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
     startMarker.on('dragend', (e) => {
       const latlng = (e.target as L.Marker).getLatLng();
-      onStartChangeRef.current?.({
-        lat: Number(latlng.lat.toFixed(4)),
-        lon: Number(latlng.lng.toFixed(4)),
-      });
+      onStartChangeRef.current?.(
+        { lat: Number(latlng.lat.toFixed(4)), lon: Number(latlng.lng.toFixed(4)) },
+        'drag'
+      );
     });
 
     startMarker.bindTooltip(
@@ -394,10 +396,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
     destMarker.on('dragend', (e) => {
       const latlng = (e.target as L.Marker).getLatLng();
-      onDestChangeRef.current?.({
-        lat: Number(latlng.lat.toFixed(4)),
-        lon: Number(latlng.lng.toFixed(4)),
-      });
+      onDestChangeRef.current?.(
+        { lat: Number(latlng.lat.toFixed(4)), lon: Number(latlng.lng.toFixed(4)) },
+        'drag'
+      );
     });
 
     destMarker.bindTooltip(
@@ -422,7 +424,7 @@ export const MapView: React.FC<MapViewProps> = ({
         }
       ).addTo(map);
     }
-  }, [startPoint, destPoint, routeResult]);
+  }, [startPoint, destPoint, routeResult, waypointRevertNonce]);
 
   // 3. Render Wind Heatmap Background & Wind Barbs for Active Model
   useEffect(() => {
