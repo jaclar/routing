@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -418,5 +419,163 @@ func TestEnsembleStatisticalOnlyStoreWriteRead(t *testing.T) {
 	}
 	if p90U[0] <= 14.0 {
 		t.Errorf("expected P90 > mean, got %f", p90U[0])
+	}
+}
+
+// TestEnsembleReducesDuringIngest verifies the ingest-time reduction: statistics are computed as
+// members arrive rather than in Finalize, the raw member grids are released as soon as nothing
+// needs them, and concurrent download workers still produce correct statistics.
+func TestEnsembleReducesDuringIngest(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "meteo_zarr_reduce_test_*")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mgr, err := NewStoreManager(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to init store manager: %v", err)
+	}
+
+	members := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	cycle := &model.ModelCycle{
+		ModelName:     "gefs_0p50",
+		ReferenceTime: time.Date(2026, 8, 30, 6, 0, 0, 0, time.UTC),
+		ResolutionDeg: 0.50,
+		ForecastSteps: []int{0, 6, 12},
+		Members:       members,
+		IsEnsemble:    true,
+	}
+
+	latStart, latEnd, latStep := 15.0, 10.0, 0.50
+	lonStart, lonEnd, lonStep := -65.0, -60.0, 0.50
+	vars := []string{model.VarWindU10m, model.VarWindV10m}
+
+	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, vars, false)
+	if err != nil {
+		t.Fatalf("failed to create staging writer: %v", err)
+	}
+
+	nlats := int(math.Round((latStart-latEnd)/latStep)) + 1
+	nlons := int(math.Round((lonEnd-lonStart)/lonStep)) + 1
+
+	// Build every (variable, step, member) slice, then submit them out of order across several
+	// goroutines the way the ingestion worker pool does.
+	type task struct {
+		variable string
+		step     int
+		member   int
+	}
+	var tasks []task
+	for _, step := range cycle.ForecastSteps {
+		for _, mID := range members {
+			tasks = append(tasks, task{model.VarWindU10m, step, mID}, task{model.VarWindV10m, step, mID})
+		}
+	}
+
+	taskChan := make(chan task, len(tasks))
+	for _, tk := range tasks {
+		taskChan <- tk
+	}
+	close(taskChan)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, len(tasks))
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for tk := range taskChan {
+				data := make([]float32, nlats*nlons)
+				for i := range data {
+					if tk.variable == model.VarWindU10m {
+						data[i] = float32(10.0 + float64(tk.member)*2.0 + float64(tk.step)*0.5)
+					} else {
+						data[i] = float32(5.0 + float64(tk.member)*1.0 + float64(tk.step)*0.2)
+					}
+				}
+				if err := writer.WriteSlice(&model.RawGridSlice{
+					Variable:  tk.variable,
+					StepHours: tk.step,
+					Member:    tk.member,
+					Data:      data,
+				}); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent WriteSlice failed: %v", err)
+	}
+
+	// Every member grid should already be gone: each step was reduced the moment its last
+	// member landed, and the wind pair released once the derived arrays were written.
+	leftover, err := filepath.Glob(filepath.Join(stagingDir, ".slices", "*.bin"))
+	if err != nil {
+		t.Fatalf("glob staging slices failed: %v", err)
+	}
+	if len(leftover) != 0 {
+		t.Errorf("expected all member slices released before Finalize, found %d: %v", len(leftover), leftover)
+	}
+
+	// The statistics themselves were staged during ingestion, before Finalize ran.
+	staged, err := filepath.Glob(filepath.Join(stagingDir, ".stats", "*.bin"))
+	if err != nil {
+		t.Fatalf("glob staged stats failed: %v", err)
+	}
+	// 2 variables x 5 statistics + 7 derived wind arrays, all across 3 forecast steps.
+	if want := (2*5 + 7) * 3; len(staged) != want {
+		t.Errorf("expected %d staged statistic grids, got %d", want, len(staged))
+	}
+
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("finalize failed: %v", err)
+	}
+	if err := mgr.PromoteStagingStore(cycle.ModelName, cycle.ReferenceTime, stagingDir); err != nil {
+		t.Fatalf("promotion failed: %v", err)
+	}
+
+	store, err := mgr.OpenLatest(cycle.ModelName)
+	if err != nil {
+		t.Fatalf("open latest failed: %v", err)
+	}
+
+	// Mean of u over members 0..9 at step 0: mean(10, 12, ... 28) = 19.0
+	meanU, err := store.GetPointTimeSeries(model.VarWindU10m+"_mean", 3, 4)
+	if err != nil {
+		t.Fatalf("get wind_u_10m_mean failed: %v", err)
+	}
+	if math.Abs(float64(meanU[0]-19.0)) > 1e-3 {
+		t.Errorf("wind_u_10m_mean step 0: expected 19.0, got %f", meanU[0])
+	}
+
+	// The canonical variable mirrors the mean so plain queries stay usable.
+	canonical, err := store.GetPointTimeSeries(model.VarWindU10m, 3, 4)
+	if err != nil {
+		t.Fatalf("get wind_u_10m failed: %v", err)
+	}
+	if math.Abs(float64(canonical[0]-19.0)) > 1e-3 {
+		t.Errorf("wind_u_10m step 0: expected ensemble mean 19.0, got %f", canonical[0])
+	}
+
+	// Derived wind speed: hypot of the member means is a lower bound on the mean speed.
+	spd, err := store.GetPointTimeSeries("wind_speed_mean", 3, 4)
+	if err != nil {
+		t.Fatalf("get wind_speed_mean failed: %v", err)
+	}
+	if spd[0] <= 0 {
+		t.Errorf("expected positive wind_speed_mean, got %f", spd[0])
+	}
+
+	prob, err := store.GetPointTimeSeries("prob_wind_ge_25kt", 3, 4)
+	if err != nil {
+		t.Fatalf("get prob_wind_ge_25kt failed: %v", err)
+	}
+	if prob[0] < 0 || prob[0] > 1.0 {
+		t.Errorf("prob_wind_ge_25kt out of [0,1]: %f", prob[0])
 	}
 }
