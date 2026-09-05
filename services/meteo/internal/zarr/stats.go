@@ -160,11 +160,13 @@ func (sw *StoreWriter) reduceWindStep(step int) error {
 				if math.IsNaN(float64(u)) || math.IsNaN(float64(v)) {
 					continue
 				}
-				spd := math.Hypot(float64(u), float64(v))
-				sample[valid] = float32(spd)
+				// Threshold tests use the float32 speed that gets stored, not the wider
+				// intermediate, so a probability never disagrees with the p50 beside it.
+				spd := float32(math.Hypot(float64(u), float64(v)))
+				sample[valid] = spd
 				valid++
 				for i, t := range windThresholds {
-					if spd >= t.speed {
+					if float64(spd) >= t.speed {
 						exceed[i]++
 					}
 				}

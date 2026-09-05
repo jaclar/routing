@@ -128,17 +128,21 @@ func (m *StoreManager) PruneOldCycles(modelID string, retainCount int) error {
 
 // CycleSummary describes a finalized on-disk Zarr store for one model cycle, for debug/status reporting.
 type CycleSummary struct {
-	Cycle           string    `json:"cycle"`
-	ReferenceTime   time.Time `json:"reference_time"`
-	IsLatest        bool      `json:"is_latest"`
-	IsEnsemble      bool      `json:"is_ensemble"`
-	NMembers        int       `json:"n_members"`
-	StoreMembers    bool      `json:"store_members"`
-	Variables       []string  `json:"variables"`
-	SizeBytes       int64     `json:"size_bytes"`
-	IngestStartedAt time.Time `json:"ingest_started_at,omitempty"`
-	DownloadEndedAt time.Time `json:"download_ended_at,omitempty"`
-	WriteEndedAt    time.Time `json:"write_ended_at,omitempty"`
+	Cycle         string    `json:"cycle"`
+	ReferenceTime time.Time `json:"reference_time"`
+	IsLatest      bool      `json:"is_latest"`
+	IsEnsemble    bool      `json:"is_ensemble"`
+	NMembers      int       `json:"n_members"`
+	StoreMembers  bool      `json:"store_members"`
+	Variables     []string  `json:"variables"`
+	SizeBytes     int64     `json:"size_bytes"`
+
+	// Nil for stores written before ingestion timing was recorded. These are pointers
+	// because encoding/json cannot omit a zero time.Time, which would otherwise report a
+	// legacy store as having been ingested in year 1.
+	IngestStartedAt *time.Time `json:"ingest_started_at"`
+	DownloadEndedAt *time.Time `json:"download_ended_at"`
+	WriteEndedAt    *time.Time `json:"write_ended_at"`
 }
 
 // ModelStoreSummary lists all finalized cycles currently on disk for one model.
@@ -201,9 +205,9 @@ func (m *StoreManager) ScanModelStores() ([]ModelStoreSummary, error) {
 				StoreMembers:    meta.StoreMembers,
 				Variables:       meta.Variables,
 				SizeBytes:       size,
-				IngestStartedAt: meta.IngestStartedAt,
-				DownloadEndedAt: meta.DownloadEndedAt,
-				WriteEndedAt:    meta.WriteEndedAt,
+				IngestStartedAt: nonZeroTime(meta.IngestStartedAt),
+				DownloadEndedAt: nonZeroTime(meta.DownloadEndedAt),
+				WriteEndedAt:    nonZeroTime(meta.WriteEndedAt),
 			})
 		}
 
@@ -227,6 +231,14 @@ type storeMetadataFile struct {
 	IngestStartedAt time.Time `json:"ingest_started_at"`
 	DownloadEndedAt time.Time `json:"download_ended_at"`
 	WriteEndedAt    time.Time `json:"write_ended_at"`
+}
+
+// nonZeroTime returns nil for a missing timestamp so it serializes as null rather than year 1.
+func nonZeroTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func readStoreMetadata(dir string) (*storeMetadataFile, error) {
