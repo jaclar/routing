@@ -12,6 +12,34 @@ import {
   WeatherModelId,
 } from '../types';
 
+/**
+ * Blends a hex colour toward white. `amount` is how far to go: 0 leaves it untouched, 1 is
+ * plain white. Used to derive pale, tinted fills that stay identifiably tied to a model's
+ * colour while sitting quietly behind the route line.
+ */
+function mixToWhite(hex: string, amount: number): string {
+  const normalized = hex.replace('#', '');
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : normalized;
+
+  const value = Number.parseInt(full, 16);
+  if (full.length !== 6 || Number.isNaN(value)) return hex;
+
+  const t = Math.min(1, Math.max(0, amount));
+  const blend = (channel: number) => Math.round(channel + (255 - channel) * t);
+
+  const r = blend((value >> 16) & 0xff);
+  const g = blend((value >> 8) & 0xff);
+  const b = blend(value & 0xff);
+
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
 // Fix Leaflet default marker icons for Webpack/Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -579,28 +607,33 @@ export const MapView: React.FC<MapViewProps> = ({
         );
         allCoords.push(...envCoords);
 
+        // Tinted almost to white: the corridor has to read as a soft haze against the dark
+        // map without competing with the route line it surrounds, while still being
+        // recognisably the active model's colour.
+        const envelopeTint = mixToWhite(meta.lightColor, 0.78);
+
         const envelopePolygon = L.polygon(envCoords, {
-          color: '#38bdf8',
-          weight: 1.2,
-          opacity: 0.45,
-          dashArray: '4, 4',
-          fillColor: '#38bdf8',
-          fillOpacity: 0.12,
+          color: envelopeTint,
+          weight: 1.6,
+          opacity: 0.9,
+          dashArray: '5, 5',
+          fillColor: envelopeTint,
+          fillOpacity: 0.2,
         });
 
         envelopePolygon.on('mouseover', () => {
           envelopePolygon.setStyle({
-            fillOpacity: 0.22,
-            weight: 1.8,
-            opacity: 0.75,
+            fillOpacity: 0.34,
+            weight: 2.4,
+            opacity: 1,
           });
         });
 
         envelopePolygon.on('mouseout', () => {
           envelopePolygon.setStyle({
-            fillOpacity: 0.12,
-            weight: 1.2,
-            opacity: 0.45,
+            fillOpacity: 0.2,
+            weight: 1.6,
+            opacity: 0.9,
           });
         });
 
@@ -610,7 +643,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
         envelopePolygon.bindTooltip(
           `<div style="font-family: var(--font-sans); font-size: 11px; line-height: 1.4;">
-             <b style="color:#38bdf8;">Route Uncertainty Envelope</b><br/>
+             <b style="color:${meta.lightColor};">Route Uncertainty Envelope</b><br/>
              Confidence: <b>${r.confidence.overall_score.toFixed(0)}% (${r.confidence.category})</b><br/>
              ${maxLatNM}
              Corridor accounts for NWP directional spread and forecast lead time.

@@ -140,6 +140,48 @@ body {
   font-family: inherit;
 }
 
+/* ==========================================================================
+   Native Date & Time Picker Controls
+   ========================================================================== */
+
+/* The browser draws the calendar/clock indicator and the picker panel from the
+   element's colour scheme. Left at the default it renders a near-black glyph, which
+   is invisible against these dark inputs. Declaring the scheme makes the browser draw
+   both the glyph and the picker panel to match the surrounding text. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  /* `color-scheme: dark` above already flips the glyph to a light one, so it must not be
+     inverted again here. Only its weight and affordance are adjusted. */
+  opacity: 0.75;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover,
+input[type="week"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* Firefox and the WebKit sub-fields render from `color`, which the inputs already set. */
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  color: inherit;
+}
+
 .input-field:focus, .select-field:focus {
   border-color: var(--accent);
 }
