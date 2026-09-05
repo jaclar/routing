@@ -137,6 +137,9 @@ func main() {
 func startDebugServer(port string, mgr *zarr.StoreManager) {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+	// Sizing every store touches a lot of files the first time. Bound it so a slow or large
+	// volume degrades the response instead of hanging the request.
+	r.Use(middleware.Timeout(20 * time.Second))
 
 	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -147,7 +150,7 @@ func startDebugServer(port string, mgr *zarr.StoreManager) {
 	})
 
 	r.Get("/debug/status", func(w http.ResponseWriter, req *http.Request) {
-		finalized, err := mgr.ScanModelStores()
+		finalized, err := mgr.ScanModelStores(req.Context())
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)

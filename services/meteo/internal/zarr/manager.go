@@ -1,12 +1,16 @@
 package zarr
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"sailboat/meteo/internal/model"
@@ -15,6 +19,11 @@ import (
 // StoreManager coordinates lifecycle, atomic activation, and retention for model stores.
 type StoreManager struct {
 	BaseDir string
+
+	// sizeCache memoizes the on-disk size of promoted cycle directories. A promoted store is
+	// immutable until it is pruned, so each directory is only ever walked once per process.
+	sizeMu    sync.Mutex
+	sizeCache map[string]int64
 }
 
 // NewStoreManager initializes a StoreManager for a given root directory (e.g. data/store).
@@ -129,6 +138,7 @@ func (m *StoreManager) PruneOldCycles(modelID string, retainCount int) error {
 // CycleSummary describes a finalized on-disk Zarr store for one model cycle, for debug/status reporting.
 type CycleSummary struct {
 	Cycle         string    `json:"cycle"`
+	Path          string    `json:"path"`
 	ReferenceTime time.Time `json:"reference_time"`
 	IsLatest      bool      `json:"is_latest"`
 	IsEnsemble    bool      `json:"is_ensemble"`
@@ -151,10 +161,11 @@ type ModelStoreSummary struct {
 	Cycles  []CycleSummary `json:"cycles"`
 }
 
-// ScanModelStores walks the base directory and reports every finalized (non-staging) Zarr
-// store per model, including on-disk size and the ingest/download/write timestamps persisted
-// in metadata.json. Used to power a debug/status endpoint.
-func (m *StoreManager) ScanModelStores() ([]ModelStoreSummary, error) {
+// ScanModelStores reports every finalized (non-staging) Zarr store per model, including on-disk
+// size and the ingest/download/write timestamps persisted in metadata.json. Sizing a store means
+// walking every chunk file in it, so results are cached per cycle directory and computed in
+// parallel; ctx bounds the first, uncached scan.
+func (m *StoreManager) ScanModelStores(ctx context.Context) ([]ModelStoreSummary, error) {
 	entries, err := os.ReadDir(m.BaseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -194,17 +205,15 @@ func (m *StoreManager) ScanModelStores() ([]ModelStoreSummary, error) {
 				continue
 			}
 
-			size, _ := dirSize(cyclePath)
-
 			summary.Cycles = append(summary.Cycles, CycleSummary{
 				Cycle:           name,
+				Path:            cyclePath,
 				ReferenceTime:   meta.ReferenceTime,
 				IsLatest:        name == latestTarget,
 				IsEnsemble:      meta.IsEnsemble,
 				NMembers:        len(meta.Members),
 				StoreMembers:    meta.StoreMembers,
 				Variables:       meta.Variables,
-				SizeBytes:       size,
 				IngestStartedAt: nonZeroTime(meta.IngestStartedAt),
 				DownloadEndedAt: nonZeroTime(meta.DownloadEndedAt),
 				WriteEndedAt:    nonZeroTime(meta.WriteEndedAt),
@@ -219,7 +228,84 @@ func (m *StoreManager) ScanModelStores() ([]ModelStoreSummary, error) {
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
+
+	if err := m.fillSizes(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// fillSizes measures every listed cycle, in parallel and reusing cached measurements. A cycle
+// whose size cannot be determined before ctx expires is reported with SizeBytes of -1 rather
+// than failing the whole request.
+func (m *StoreManager) fillSizes(ctx context.Context, models []ModelStoreSummary) error {
+	type target struct{ model, cycle int }
+
+	var targets []target
+	for mi := range models {
+		for ci := range models[mi].Cycles {
+			targets = append(targets, target{mi, ci})
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+
+	workers := runtime.NumCPU()
+	if workers > len(targets) {
+		workers = len(targets)
+	}
+
+	queue := make(chan target, len(targets))
+	for _, t := range targets {
+		queue <- t
+	}
+	close(queue)
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for t := range queue {
+				cycle := &models[t.model].Cycles[t.cycle]
+				if ctx.Err() != nil {
+					cycle.SizeBytes = -1
+					continue
+				}
+				cycle.SizeBytes = m.cachedDirSize(cycle.Path)
+			}
+		}()
+	}
+	wg.Wait()
+
+	return nil
+}
+
+// cachedDirSize returns the on-disk size of a promoted cycle directory, walking it only the
+// first time. Promoted stores never change, so a cached size cannot go stale; pruning simply
+// leaves an unused entry behind.
+func (m *StoreManager) cachedDirSize(path string) int64 {
+	m.sizeMu.Lock()
+	if size, ok := m.sizeCache[path]; ok {
+		m.sizeMu.Unlock()
+		return size
+	}
+	m.sizeMu.Unlock()
+
+	size, err := dirSize(path)
+	if err != nil {
+		return -1
+	}
+
+	m.sizeMu.Lock()
+	if m.sizeCache == nil {
+		m.sizeCache = make(map[string]int64)
+	}
+	m.sizeCache[path] = size
+	m.sizeMu.Unlock()
+
+	return size
 }
 
 type storeMetadataFile struct {
@@ -253,16 +339,23 @@ func readStoreMetadata(dir string) (*storeMetadataFile, error) {
 	return &meta, nil
 }
 
-// dirSize sums the size of all regular files under path (used to report on-disk footprint of a store).
+// dirSize sums the size of all regular files under path. It uses WalkDir rather than Walk so
+// directory entries are not stat'ed twice, which matters across the tens of thousands of chunk
+// files a single ensemble cycle contains.
 func dirSize(path string) (int64, error) {
 	var size int64
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
-			size += info.Size()
+		if d.IsDir() {
+			return nil
 		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size += info.Size()
 		return nil
 	})
 	return size, err
