@@ -81,7 +81,12 @@ func (s *Server) HandleRoute(w http.ResponseWriter, r *http.Request) {
 		var err error
 		polarTable, err = s.vppClient.FetchPolar(preset, req.CustomBoat)
 		if err != nil || polarTable == nil {
-			polarTable = polar.Get36ftKetchPolar()
+			// The VPP service owns every polar, so there is nothing sensible to fall back
+			// to. Routing against a substitute boat would quietly produce a passage plan
+			// for the wrong vessel.
+			http.Error(w, fmt.Sprintf("Could not obtain polar for %q from the VPP service: %v", preset, err),
+				http.StatusServiceUnavailable)
+			return
 		}
 	}
 
@@ -411,7 +416,12 @@ func (s *Server) HandleWeatherWindows(w http.ResponseWriter, r *http.Request) {
 		var err error
 		polarTable, err = s.vppClient.FetchPolar(preset, req.CustomBoat)
 		if err != nil || polarTable == nil {
-			polarTable = polar.Get36ftKetchPolar()
+			// The VPP service owns every polar, so there is nothing sensible to fall back
+			// to. Routing against a substitute boat would quietly produce a passage plan
+			// for the wrong vessel.
+			http.Error(w, fmt.Sprintf("Could not obtain polar for %q from the VPP service: %v", preset, err),
+				http.StatusServiceUnavailable)
+			return
 		}
 	}
 

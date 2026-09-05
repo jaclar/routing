@@ -14,7 +14,7 @@ import (
 )
 
 func TestHealthEndpoint(t *testing.T) {
-	server := NewServer("http://localhost:8000")
+	server := NewServer(newStubVPP(t))
 	handler := server.SetupRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -37,7 +37,7 @@ func TestHealthEndpoint(t *testing.T) {
 }
 
 func TestRouteEndpoint(t *testing.T) {
-	server := NewServer("http://localhost:8000")
+	server := NewServer(newStubVPP(t))
 	handler := server.SetupRouter()
 
 	routeReq := RouteRequest{
@@ -60,7 +60,7 @@ func TestRouteEndpoint(t *testing.T) {
 }
 
 func TestRouteEndpointWithCustomPolar(t *testing.T) {
-	server := NewServer("http://localhost:8000")
+	server := NewServer(newStubVPP(t))
 	handler := server.SetupRouter()
 
 	customPolar := &polar.PolarTable{
@@ -109,7 +109,7 @@ func TestRouteEndpointWithCustomPolar(t *testing.T) {
 }
 
 func TestWeatherGridEndpoint(t *testing.T) {
-	server := NewServer("http://localhost:8000")
+	server := NewServer(newStubVPP(t))
 	handler := server.SetupRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/weather/grid", nil)
@@ -123,7 +123,7 @@ func TestWeatherGridEndpoint(t *testing.T) {
 }
 
 func TestLandmaskPolygonsEndpoint(t *testing.T) {
-	server := NewServer("http://localhost:8000")
+	server := NewServer(newStubVPP(t))
 	handler := server.SetupRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/landmask/polygons", nil)
@@ -146,7 +146,7 @@ func TestLandmaskPolygonsEndpoint(t *testing.T) {
 }
 
 func TestWeatherWindowsEndpoint(t *testing.T) {
-	server := NewServer("http://localhost:8000")
+	server := NewServer(newStubVPP(t))
 	handler := server.SetupRouter()
 
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -191,4 +191,3 @@ func TestWeatherWindowsEndpoint(t *testing.T) {
 		t.Errorf("Expected representative event description")
 	}
 }
-

@@ -7,12 +7,13 @@ import (
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
+	"github.com/jaclar/routing-service/polar/polartest"
 	"github.com/jaclar/routing-service/weather"
 )
 
 var (
-	benchLandMask *landmask.LandMask
-	benchWeather  weather.WeatherProvider
+	benchLandMask  *landmask.LandMask
+	benchWeather   weather.WeatherProvider
 	benchStartTime = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 )
 
@@ -30,9 +31,9 @@ type BenchScenario struct {
 }
 
 func getBenchScenarios() []BenchScenario {
-	ketch := polar.Get36ftKetchPolar()
-	sloop := polar.GetPresetPolar("36ft-sloop")
-	cruiser := polar.GetPresetPolar("40ft-cruiser")
+	ketch := polartest.Table()
+	sloop := polartest.Table()
+	cruiser := polartest.Table()
 
 	return []BenchScenario{
 		{

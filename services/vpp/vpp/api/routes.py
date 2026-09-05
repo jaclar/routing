@@ -8,6 +8,7 @@ from fastapi.responses import PlainTextResponse
 
 from vpp.solver.vpp_solver import VPPSolver
 from vpp.polars.polar_data import PolarTable, compute_vmg_targets, generate_polar_table
+from vpp.polars.preset_cache import get_preset_polar
 from vpp.polars.plotter import (
     plot_polar_diagram,
     plot_performance_curves,
@@ -115,6 +116,19 @@ def get_or_generate_polar_table(req: SolveMatrixRequest) -> PolarTable:
             upwind_targets=upwind_targets,
             downwind_targets=downwind_targets,
         )
+
+    # A bare preset request is served from the cache: this service is the only source of
+    # these tables, so the same handful are asked for over and over by the routing engine.
+    if req.boat is None and req.preset_name:
+        key = req.preset_name.lower().strip()
+        if key in PRESETS_MAP:
+            return get_preset_polar(
+                preset_id=key,
+                boat_factory=PRESETS_MAP[key],
+                tws_list=req.tws_list,
+                twa_list=req.twa_list,
+                max_heel_deg=req.max_heel_deg,
+            )
 
     boat = resolve_boat(req.boat, req.preset_name)
     solver = VPPSolver(boat=boat, max_heel_deg=req.max_heel_deg)

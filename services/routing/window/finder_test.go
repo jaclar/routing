@@ -7,7 +7,7 @@ import (
 
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
-	"github.com/jaclar/routing-service/polar"
+	"github.com/jaclar/routing-service/polar/polartest"
 	"github.com/jaclar/routing-service/weather"
 )
 
@@ -62,7 +62,7 @@ func TestFindWindowsRealisticSimulation(t *testing.T) {
 	dest := geo.Point{Lat: 32.40, Lon: -64.55}
 	latest := startTime.Add(48 * time.Hour) // 48h search window = 4-5 departures
 
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 
 	req := WindowRequest{
 		Start:             start,

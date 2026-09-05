@@ -255,6 +255,12 @@ func main() {
 		}
 	}
 
+	vppURL := os.Getenv("VPP_SERVICE_URL")
+	if vppURL == "" {
+		vppURL = "http://localhost:4001"
+	}
+	vppClient := polar.NewVPPClient(vppURL)
+
 	results := make([]BenchmarkResult, 0)
 	wavefrontExports := make(map[string]WavefrontExport)
 
@@ -263,7 +269,14 @@ func main() {
 		log.Printf(">>> SCENARIO: %s (TimeStep: %s)", preset.Name, preset.TimeStep)
 		log.Printf("==================================================================")
 		directNM := geo.DistanceNM(preset.Start, preset.Dest)
-		polarTable := polar.GetPresetPolar(preset.BoatID)
+		// Polars come from the VPP service, the same as in production; the client caches
+		// each preset after its first fetch so repeated scenarios do not re-solve it.
+		polarTable, err := vppClient.FetchPolar(preset.BoatID, nil)
+		if err != nil {
+			log.Fatalf("could not fetch polar for %s from the VPP service at %s: %v\n"+
+				"Set VPP_SERVICE_URL, or start the service, and try again.",
+				preset.BoatID, vppURL, err)
+		}
 
 		wfExport := WavefrontExport{
 			PresetID:     preset.ID,

@@ -6,12 +6,12 @@ import (
 
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/landmask"
-	"github.com/jaclar/routing-service/polar"
+	"github.com/jaclar/routing-service/polar/polartest"
 	"github.com/jaclar/routing-service/weather"
 )
 
 func TestPolarNoGoZone(t *testing.T) {
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 
 	// 1. Head to wind (TWA = 0°) -> 0 knots
 	spd0 := polarTable.InterpolateSpeed(16.0, 0.0)
@@ -54,7 +54,7 @@ func TestPureUpwindBeating(t *testing.T) {
 	dest := geo.Point{Lat: 1.5, Lon: 0.0} // ~90 NM straight North
 
 	startTime := time.Now().UTC()
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 	weatherProvider := &ConstantNorthWindProvider{}
 
 	cfg := DefaultRouterConfig()
@@ -98,7 +98,7 @@ func TestIsochroneRoutingNewportToBermuda(t *testing.T) {
 	bermuda := geo.Point{Lat: 32.40, Lon: -64.55}
 
 	startTime := time.Now().UTC()
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 	weatherEngine := weather.NewRealisticGFSEngine(startTime)
 	landMask := landmask.NewGSHHGLandMask()
 
@@ -145,7 +145,7 @@ func TestSanFranciscoToHawaii(t *testing.T) {
 	honolulu := geo.Point{Lat: 21.25, Lon: -157.60}
 
 	startTime := time.Now().UTC()
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 	weatherEngine := weather.NewRealisticGFSEngine(startTime)
 	landMask := landmask.NewGSHHGLandMask()
 
@@ -202,7 +202,7 @@ func TestPricklyBayToChaguaramas(t *testing.T) {
 	dest := geo.Point{Lat: 10.675, Lon: -61.645}
 
 	startTime := time.Now().UTC()
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 	weatherEngine := weather.NewRealisticGFSEngine(startTime)
 	landMask := landmask.NewGSHHGLandMask()
 
@@ -248,7 +248,7 @@ func TestCowesToFastnetRock(t *testing.T) {
 	dest := geo.Point{Lat: 51.39, Lon: -9.60}
 
 	startTime := time.Now().UTC()
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 	weatherEngine := weather.NewRealisticGFSEngine(startTime)
 	landMask := landmask.NewGSHHGLandMask()
 
@@ -292,7 +292,7 @@ func TestPruningStrategiesComparison(t *testing.T) {
 	dest := geo.Point{Lat: 32.40, Lon: -64.55}  // Bermuda
 
 	startTime := time.Now().UTC()
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 	weatherEngine := weather.NewRealisticGFSEngine(startTime)
 	landMask := landmask.NewGSHHGLandMask()
 
@@ -337,5 +337,3 @@ func TestPruningStrategiesComparison(t *testing.T) {
 		})
 	}
 }
-
-

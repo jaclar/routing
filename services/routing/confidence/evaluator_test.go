@@ -9,7 +9,7 @@ import (
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
 	"github.com/jaclar/routing-service/landmask"
-	"github.com/jaclar/routing-service/polar"
+	"github.com/jaclar/routing-service/polar/polartest"
 	"github.com/jaclar/routing-service/weather"
 )
 
@@ -81,7 +81,7 @@ func TestEvaluateRouteSynthetic(t *testing.T) {
 		Waypoints:          wps,
 	}
 
-	polarTable := polar.Get36ftKetchPolar()
+	polarTable := polartest.Table()
 
 	conf, err := eval.EvaluateRoute(context.Background(), route, polarTable, "gefs_0p50")
 	if err != nil {
@@ -168,7 +168,7 @@ func TestDeterministicModelMapping(t *testing.T) {
 		Waypoints:          wps,
 	}
 
-	conf, err := eval.EvaluateRoute(context.Background(), route, polar.Get36ftKetchPolar(), "gfs_0p25")
+	conf, err := eval.EvaluateRoute(context.Background(), route, polartest.Table(), "gfs_0p25")
 	if err != nil {
 		t.Fatalf("EvaluateRoute failed: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestEnvelopeLandCollisionAvoidance(t *testing.T) {
 		Waypoints:          wps,
 	}
 
-	conf, err := eval.EvaluateRoute(context.Background(), route, polar.Get36ftKetchPolar(), "gfs_0p25")
+	conf, err := eval.EvaluateRoute(context.Background(), route, polartest.Table(), "gfs_0p25")
 	if err != nil {
 		t.Fatalf("EvaluateRoute failed: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestEnvelopeEndpointConvergence(t *testing.T) {
 		Waypoints:          wps,
 	}
 
-	conf, err := eval.EvaluateRoute(context.Background(), route, polar.Get36ftKetchPolar(), "gfs_0p25")
+	conf, err := eval.EvaluateRoute(context.Background(), route, polartest.Table(), "gfs_0p25")
 	if err != nil {
 		t.Fatalf("EvaluateRoute failed: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestMultiIsochroneEnsembleSolve(t *testing.T) {
 		start,
 		dest,
 		startTime,
-		polar.Get36ftKetchPolar(),
+		polartest.Table(),
 		weather.NewMemberWeatherEngine(0, baseGrid),
 		lm,
 		cfg,
@@ -343,7 +343,7 @@ func TestMultiIsochroneEnsembleSolve(t *testing.T) {
 		primaryRoute,
 		start,
 		dest,
-		polar.Get36ftKetchPolar(),
+		polartest.Table(),
 		baseGrid,
 		"gefs_0p50",
 		cfg,
