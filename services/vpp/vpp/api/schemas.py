@@ -257,6 +257,13 @@ class SolveMatrixResponse(BaseModel):
     speed_matrix: List[List[float]]  # [len(tws), len(twa)] in knots
     upwind_vmg_targets: Dict[str, VMGTargetResponse]
     downwind_vmg_targets: Dict[str, VMGTargetResponse]
+    # Fingerprint of the model that produced this table. A client holding a stored polar can
+    # compare it against the live value to notice that the polar predates a model change.
+    model_version: str = ""
+
+
+class ModelVersionResponse(BaseModel):
+    model_version: str
 
 
 class PresetSummaryResponse(BaseModel):

@@ -671,3 +671,56 @@ export async function findWeatherWindows(params: WeatherWindowRequest): Promise<
   return await parseApiResponse<WeatherWindowResponse>(res, 'Weather window search failed');
 }
 
+
+/**
+ * Fetch the fingerprint of the VPP model currently running.
+ *
+ * A custom boat's polar is solved once and then kept in this browser indefinitely, so when
+ * the model changes those stored tables silently become predictions from a model that no
+ * longer exists. Comparing this against the version stored with a polar is what makes that
+ * visible instead of invisible.
+ */
+export async function fetchModelVersion(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/v1/model-version');
+    if (!res.ok) return null;
+    const data = (await res.json()) as { model_version?: string };
+    return data.model_version || null;
+  } catch (err) {
+    // Not being able to check is not the same as being stale: say nothing rather than
+    // warning about boats that may well be current.
+    console.warn('Could not read the VPP model version:', err);
+    return null;
+  }
+}
+
+/**
+ * Whether a saved boat's polar should be re-solved against the model currently running.
+ *
+ * Only boats solved from geometry are considered. A `.pol` import carries measured data that
+ * owes nothing to the model, and a boat with no geometry cannot be re-solved at all, so
+ * flagging either would only produce a warning nobody can act on.
+ *
+ * A boat carrying no version at all is treated as stale. Those polars were solved before
+ * versioning existed, which means they predate the model changes that motivated adding it,
+ * and there is no way to tell a current one from an outdated one. Re-solving is cheap and
+ * non-destructive, so the safe assumption is the useful one.
+ */
+export function isPolarStale(boat: BoatPreset, currentVersion: string | null): boolean {
+  // Without a live version to compare against, say nothing rather than warn blindly.
+  if (!currentVersion) return false;
+  if (boat.isPolFileOnly || !boat.customBoat) return false;
+
+  return boat.polarData?.model_version !== currentVersion;
+}
+
+/**
+ * Re-solve a stored boat against the current model, preserving its identity and name.
+ */
+export async function resolveBoatPolar(boat: BoatPreset): Promise<BoatPreset> {
+  if (!boat.customBoat) {
+    throw new Error(`"${boat.name}" has no geometry to re-solve from`);
+  }
+  const matrix = await fetchPolarMatrix(boat.customBoat);
+  return { ...boat, polarData: matrix };
+}

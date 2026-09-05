@@ -5009,3 +5009,75 @@ input[type="date"]::-webkit-datetime-edit-fields-wrapper {
 }
 
 
+
+/* ==========================================================================
+   Stale Polar Notice
+   ========================================================================== */
+
+.stale-polar-notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 10px;
+  padding: 11px 13px;
+  margin-bottom: 10px;
+}
+
+.stale-polar-icon {
+  color: #fbbf24;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.stale-polar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.stale-polar-title {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: #fbbf24;
+}
+
+.stale-polar-sub {
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.stale-polar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.btn-resolve-polar {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+  font-size: 0.73rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-resolve-polar:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.28);
+  color: #ffffff;
+}
+
+.btn-resolve-polar:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

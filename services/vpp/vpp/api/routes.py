@@ -9,6 +9,7 @@ from fastapi.responses import PlainTextResponse
 from vpp.solver.vpp_solver import VPPSolver
 from vpp.polars.polar_data import PolarTable, compute_vmg_targets, generate_polar_table
 from vpp.polars.preset_cache import get_preset_polar
+from vpp.polars.model_version import model_version
 from vpp.polars.plotter import (
     plot_polar_diagram,
     plot_performance_curves,
@@ -22,11 +23,22 @@ from vpp.api.schemas import (
     SolveMatrixResponse,
     VMGTargetResponse,
     PresetSummaryResponse,
+    ModelVersionResponse,
     PRESETS_MAP,
     resolve_boat,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["VPP"])
+
+
+@router.get("/model-version", response_model=ModelVersionResponse)
+def get_model_version():
+    """Return the fingerprint of the current VPP model.
+
+    Clients that keep solved polars call this to find out whether what they hold was produced
+    by the model still running here.
+    """
+    return ModelVersionResponse(model_version=model_version())
 
 
 @router.get("/presets", response_model=List[PresetSummaryResponse])
@@ -172,6 +184,7 @@ def solve_matrix(req: SolveMatrixRequest):
         speed_matrix=polars.speed_table.tolist(),
         upwind_vmg_targets=upwind_targets,
         downwind_vmg_targets=downwind_targets,
+        model_version=model_version(),
     )
 
 

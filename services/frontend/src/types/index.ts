@@ -148,6 +148,12 @@ export interface SolveMatrixResponse {
   speed_matrix: number[][]; // [twsIndex][twaIndex] in knots
   upwind_vmg_targets: Record<string, VMGTarget>;
   downwind_vmg_targets: Record<string, VMGTarget>;
+  /**
+   * Fingerprint of the VPP model that produced this table. Absent on polars solved before
+   * versioning existed, and on tables imported from a .pol file, which are measured data
+   * rather than model output.
+   */
+  model_version?: string;
 }
 
 export interface WindCondition {

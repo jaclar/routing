@@ -11,6 +11,8 @@ import {
   Shield,
   ChevronRight,
   Trash2,
+  AlertTriangle,
+  RotateCw,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -19,6 +21,11 @@ interface SettingsViewProps {
   onSelectPreset: (id: string) => void;
   onAddCustomBoat: (preset: BoatPreset) => void;
   onDeleteCustomBoat?: (presetId: string) => void;
+  /** Boats whose stored polar was solved by an older VPP model. */
+  stalePresetIds?: string[];
+  /** Boats currently being re-solved. */
+  resolvingBoatIds?: string[];
+  onResolvePolar?: (presetId: string) => void;
   tackPenaltyMinutes: number;
   onTackPenaltyChange: (mins: number) => void;
   gybePenaltyMinutes: number;
@@ -34,6 +41,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSelectPreset,
   onAddCustomBoat,
   onDeleteCustomBoat,
+  stalePresetIds = [],
+  resolvingBoatIds = [],
+  onResolvePolar,
   tackPenaltyMinutes,
   onTackPenaltyChange,
   gybePenaltyMinutes,
@@ -114,6 +124,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </span>
                 )}
               </div>
+
+              {stalePresetIds.length > 0 && (
+                <div className="stale-polar-notice">
+                  <AlertTriangle size={15} className="stale-polar-icon" />
+                  <div className="stale-polar-body">
+                    <span className="stale-polar-title">
+                      {stalePresetIds.includes(selectedPresetId)
+                        ? 'This boat\u2019s polar needs recalculating'
+                        : `${stalePresetIds.length} saved ${stalePresetIds.length === 1 ? 'boat needs' : 'boats need'} recalculating`}
+                    </span>
+                    <span className="stale-polar-sub">
+                      These were solved by an earlier version of the performance model, so
+                      routes based on them may be wrong. Re-solving keeps the boat and replaces
+                      only its polar — its name, geometry and settings are untouched.
+                    </span>
+                    <div className="stale-polar-actions">
+                      {stalePresetIds.map((id) => {
+                        const boat = presets.find((p) => p.id === id);
+                        const busy = resolvingBoatIds.includes(id);
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            className="btn-resolve-polar"
+                            disabled={busy || !onResolvePolar}
+                            onClick={() => onResolvePolar?.(id)}
+                          >
+                            <RotateCw size={12} className={busy ? 'animate-spin' : ''} />
+                            <span>{busy ? 'Re-solving\u2026' : `Re-solve ${boat?.name ?? id}`}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <select
                 className="select-field"

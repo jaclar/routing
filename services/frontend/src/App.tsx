@@ -31,6 +31,9 @@ import {
   loadCustomBoatsFromStorage,
   saveCustomBoatToStorage,
   deleteCustomBoatFromStorage,
+  fetchModelVersion,
+  isPolarStale,
+  resolveBoatPolar,
 } from './services/api';
 import {
   usePersistedState,
@@ -105,6 +108,37 @@ export const App: React.FC = () => {
   const [showWindGrid, setShowWindGrid] = usePersistedState<boolean>('showWindGrid', true);
   const [showIsochrones, setShowIsochrones] = usePersistedState<boolean>('showIsochrones', false);
   const [showLandmask, setShowLandmask] = usePersistedState<boolean>('showLandmask', true);
+
+  // Fingerprint of the VPP model currently running. Custom boats carry the fingerprint they
+  // were solved with, so a mismatch means a stored polar predates a model change.
+  const [modelVersion, setModelVersion] = useState<string | null>(null);
+  const [resolvingBoatIds, setResolvingBoatIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchModelVersion().then(setModelVersion);
+  }, []);
+
+  const stalePresetIds = presets.filter((p) => isPolarStale(p, modelVersion)).map((p) => p.id);
+
+  // Re-solves a stored boat against the current model and writes it back to storage.
+  const handleResolvePolar = useCallback(
+    async (presetId: string) => {
+      const boat = presets.find((p) => p.id === presetId);
+      if (!boat) return;
+
+      setResolvingBoatIds((ids) => [...ids, presetId]);
+      try {
+        const updated = await resolveBoatPolar(boat);
+        saveCustomBoatToStorage(updated);
+        setPresets((prev) => prev.map((p) => (p.id === presetId ? updated : p)));
+      } catch (err: any) {
+        alert(`Could not re-solve "${boat.name}": ${err.message || err}`);
+      } finally {
+        setResolvingBoatIds((ids) => ids.filter((id) => id !== presetId));
+      }
+    },
+    [presets]
+  );
 
   // Weather grid cache by model and timestamp
   const weatherCacheRef = useRef<Map<string, WeatherGridResponse>>(new Map());
@@ -666,6 +700,9 @@ export const App: React.FC = () => {
             onSelectPreset={setSelectedPresetId}
             onAddCustomBoat={handleAddCustomBoat}
             onDeleteCustomBoat={handleDeleteCustomBoat}
+            stalePresetIds={stalePresetIds}
+            resolvingBoatIds={resolvingBoatIds}
+            onResolvePolar={handleResolvePolar}
             tackPenaltyMinutes={tackPenaltyMinutes}
             onTackPenaltyChange={setTackPenaltyMinutes}
             gybePenaltyMinutes={gybePenaltyMinutes}
