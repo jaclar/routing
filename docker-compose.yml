@@ -57,6 +57,8 @@ services:
       - DATA_DIR=/data/store
       - STORE_FULL_ENSEMBLE=${STORE_FULL_ENSEMBLE:-false}
       - DEBUG_PORT=4082
+    ports:
+      - "4082:4082"
     volumes:
       - /data/store:/data/store
     restart: unless-stopped
