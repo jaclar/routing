@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"sailboat/meteo/internal/grib2"
@@ -19,10 +18,9 @@ import (
 
 // ECMWFENSDriver implements ModelDriver for ECMWF Open Data IFS 0.25° 50-member ensemble forecasts.
 type ECMWFENSDriver struct {
-	httpClient       *http.Client
-	baseURL          string
-	parsedIndexCache map[string]map[string]ecmwfByteRange // cacheKey -> byteRange
-	idxMu            sync.Mutex
+	httpClient *http.Client
+	baseURL    string
+	indexCache onceCache[map[string]ecmwfByteRange]
 }
 
 // NewECMWFENSDriver creates a new ECMWF IFS-ENS 0.25° driver.
@@ -31,9 +29,8 @@ func NewECMWFENSDriver(client *http.Client) *ECMWFENSDriver {
 		client = DefaultHTTPClient()
 	}
 	return &ECMWFENSDriver{
-		httpClient:       client,
-		baseURL:          ECMWFBaseS3URL,
-		parsedIndexCache: make(map[string]map[string]ecmwfByteRange),
+		httpClient: client,
+		baseURL:    ECMWFBaseS3URL,
 	}
 }
 
@@ -271,17 +268,16 @@ func (e *ECMWFENSDriver) IngestSlice(ctx context.Context, task model.FetchTask) 
 	return slice, nil
 }
 
+// fetchAndParseIndex returns the parsed index for idxURL. Concurrent workers needing the
+// same index share one fetch; workers needing different indexes never block each other.
 func (e *ECMWFENSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) (map[string]ecmwfByteRange, error) {
-	e.idxMu.Lock()
-	defer e.idxMu.Unlock()
+	return e.indexCache.get(idxURL, func() (map[string]ecmwfByteRange, error) {
+		return e.fetchIndex(ctx, idxURL)
+	})
+}
 
-	if e.parsedIndexCache == nil {
-		e.parsedIndexCache = make(map[string]map[string]ecmwfByteRange)
-	}
-	if ranges, exists := e.parsedIndexCache[idxURL]; exists {
-		return ranges, nil
-	}
-
+// fetchIndex downloads and parses a single GRIB index file.
+func (e *ECMWFENSDriver) fetchIndex(ctx context.Context, idxURL string) (map[string]ecmwfByteRange, error) {
 	var rawBytes []byte
 	var fetchErr error
 	const maxIdxAttempts = 8
@@ -363,7 +359,6 @@ func (e *ECMWFENSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) 
 		return nil, err
 	}
 
-	e.parsedIndexCache[idxURL] = res
 	return res, nil
 }
 

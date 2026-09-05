@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"sailboat/meteo/internal/grib2"
@@ -27,10 +26,9 @@ type gefsIdxRecord struct {
 
 // GEFSDriver implements ModelDriver for NOAA GEFS 0.50° 31-member global ensemble forecasts.
 type GEFSDriver struct {
-	httpClient       *http.Client
-	baseURL          string
-	parsedIndexCache map[string][]gefsIdxRecord
-	idxMu            sync.Mutex
+	httpClient *http.Client
+	baseURL    string
+	indexCache onceCache[[]gefsIdxRecord]
 }
 
 // NewGEFSDriver creates a new NOAA GEFS 0.50° ensemble driver.
@@ -39,9 +37,8 @@ func NewGEFSDriver(client *http.Client) *GEFSDriver {
 		client = DefaultHTTPClient()
 	}
 	return &GEFSDriver{
-		httpClient:       client,
-		baseURL:          GEFSBaseS3URL,
-		parsedIndexCache: make(map[string][]gefsIdxRecord),
+		httpClient: client,
+		baseURL:    GEFSBaseS3URL,
 	}
 }
 
@@ -93,7 +90,7 @@ func (g *GEFSDriver) CheckLatestCycle(ctx context.Context) (*model.ModelCycle, e
 		// Test existence of perturbed member 30 index file in both pgrb2a and pgrb2b to ensure NOAA has finished uploading all members
 		idxURLA := fmt.Sprintf("%s/gefs.%s/%s/atmos/pgrb2ap5/gep30.t%sz.pgrb2a.0p50.f%03d.idx", g.baseURL, dateStr, hourStr, hourStr, testStep)
 		idxURLB := fmt.Sprintf("%s/gefs.%s/%s/atmos/pgrb2bp5/gep30.t%sz.pgrb2b.0p50.f%03d.idx", g.baseURL, dateStr, hourStr, hourStr, testStep)
-		
+
 		reqA, errA := http.NewRequestWithContext(ctx, http.MethodHead, idxURLA, nil)
 		reqB, errB := http.NewRequestWithContext(ctx, http.MethodHead, idxURLB, nil)
 		if errA == nil && errB == nil {
@@ -199,19 +196,19 @@ func (g *GEFSDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*mo
 	// At step 0, precipitation accumulation is 0.0 mm
 	if task.Variable == model.VarPrecipAccum && task.StepHours == 0 {
 		return &model.RawGridSlice{
-			Variable:   task.Variable,
-			ValidTime:  task.Cycle,
-			StepHours:  0,
-			Member:     task.Member,
-			NLats:      nlats,
-			NLons:      nlons,
-			LatStart:   90.0,
-			LatEnd:     -90.0,
-			LatStep:    0.50,
-			LonStart:   0.0,
-			LonEnd:     359.50,
-			LonStep:    0.50,
-			Data:       make([]float32, nlats*nlons),
+			Variable:  task.Variable,
+			ValidTime: task.Cycle,
+			StepHours: 0,
+			Member:    task.Member,
+			NLats:     nlats,
+			NLons:     nlons,
+			LatStart:  90.0,
+			LatEnd:    -90.0,
+			LatStep:   0.50,
+			LonStart:  0.0,
+			LonEnd:    359.50,
+			LonStep:   0.50,
+			Data:      make([]float32, nlats*nlons),
 		}, nil
 	}
 
@@ -318,17 +315,16 @@ func (g *GEFSDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*mo
 	return slice, nil
 }
 
+// fetchAndParseIndex returns the parsed index for idxURL. Concurrent workers needing the
+// same index share one fetch; workers needing different indexes never block each other.
 func (g *GEFSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) ([]gefsIdxRecord, error) {
-	g.idxMu.Lock()
-	defer g.idxMu.Unlock()
+	return g.indexCache.get(idxURL, func() ([]gefsIdxRecord, error) {
+		return g.fetchIndex(ctx, idxURL)
+	})
+}
 
-	if g.parsedIndexCache == nil {
-		g.parsedIndexCache = make(map[string][]gefsIdxRecord)
-	}
-	if records, exists := g.parsedIndexCache[idxURL]; exists {
-		return records, nil
-	}
-
+// fetchIndex downloads and parses a single GRIB index file.
+func (g *GEFSDriver) fetchIndex(ctx context.Context, idxURL string) ([]gefsIdxRecord, error) {
 	var rawBytes []byte
 	var fetchErr error
 	const maxIdxAttempts = 8
@@ -404,7 +400,6 @@ func (g *GEFSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) ([]g
 		return nil, err
 	}
 
-	g.parsedIndexCache[idxURL] = records
 	return records, nil
 }
 

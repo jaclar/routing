@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"sailboat/meteo/internal/grib2"
@@ -27,11 +26,10 @@ type ecmwfByteRange struct {
 
 // ECMWFDriver implements ModelDriver for ECMWF Open Data (IFS 0.25° and AIFS 0.25°) via S3 index byte ranges.
 type ECMWFDriver struct {
-	httpClient       *http.Client
-	modelID          string
-	baseURL          string
-	parsedIndexCache map[string]map[string]ecmwfByteRange
-	idxMu            sync.Mutex
+	httpClient *http.Client
+	modelID    string
+	baseURL    string
+	indexCache onceCache[map[string]ecmwfByteRange]
 }
 
 // NewECMWFDriver creates an ECMWF driver for IFS or AIFS.
@@ -43,10 +41,9 @@ func NewECMWFDriver(modelID string, client *http.Client) *ECMWFDriver {
 		modelID = model.ModelIFS025
 	}
 	return &ECMWFDriver{
-		httpClient:       client,
-		modelID:          modelID,
-		baseURL:          ECMWFBaseS3URL,
-		parsedIndexCache: make(map[string]map[string]ecmwfByteRange),
+		httpClient: client,
+		modelID:    modelID,
+		baseURL:    ECMWFBaseS3URL,
 	}
 }
 
@@ -277,17 +274,16 @@ func normalizeECMWFGrid(data []float32, nlats, nlons int) []float32 {
 }
 
 // fetchAndParseIndex downloads and parses an ECMWF JSON-Lines .index file once, caching the results in memory.
+// fetchAndParseIndex returns the parsed index for idxURL. Concurrent workers needing the
+// same index share one fetch; workers needing different indexes never block each other.
 func (e *ECMWFDriver) fetchAndParseIndex(ctx context.Context, idxURL string) (map[string]ecmwfByteRange, error) {
-	e.idxMu.Lock()
-	defer e.idxMu.Unlock()
+	return e.indexCache.get(idxURL, func() (map[string]ecmwfByteRange, error) {
+		return e.fetchIndex(ctx, idxURL)
+	})
+}
 
-	if e.parsedIndexCache == nil {
-		e.parsedIndexCache = make(map[string]map[string]ecmwfByteRange)
-	}
-	if ranges, exists := e.parsedIndexCache[idxURL]; exists {
-		return ranges, nil
-	}
-
+// fetchIndex downloads and parses a single GRIB index file.
+func (e *ECMWFDriver) fetchIndex(ctx context.Context, idxURL string) (map[string]ecmwfByteRange, error) {
 	var rawBytes []byte
 	var fetchErr error
 	const maxIdxAttempts = 8
@@ -367,7 +363,6 @@ func (e *ECMWFDriver) fetchAndParseIndex(ctx context.Context, idxURL string) (ma
 		return nil, err
 	}
 
-	e.parsedIndexCache[idxURL] = res
 	return res, nil
 }
 

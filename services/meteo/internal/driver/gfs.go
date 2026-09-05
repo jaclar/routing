@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"sailboat/meteo/internal/grib2"
@@ -27,10 +26,9 @@ type gfsIdxRecord struct {
 
 // GFSDriver implements ModelDriver for NOAA GFS 0.25° global forecasts.
 type GFSDriver struct {
-	httpClient       *http.Client
-	baseURL          string
-	parsedIndexCache map[string][]gfsIdxRecord
-	idxMu            sync.Mutex
+	httpClient *http.Client
+	baseURL    string
+	indexCache onceCache[[]gfsIdxRecord]
 }
 
 // NewGFSDriver creates a new NOAA GFS 0.25° driver.
@@ -39,9 +37,8 @@ func NewGFSDriver(client *http.Client) *GFSDriver {
 		client = DefaultHTTPClient()
 	}
 	return &GFSDriver{
-		httpClient:       client,
-		baseURL:          GFSBaseS3URL,
-		parsedIndexCache: make(map[string][]gfsIdxRecord),
+		httpClient: client,
+		baseURL:    GFSBaseS3URL,
 	}
 }
 
@@ -273,17 +270,16 @@ func (g *GFSDriver) IngestSlice(ctx context.Context, task model.FetchTask) (*mod
 }
 
 // fetchAndParseIndex downloads and parses a NOAA GFS .idx file once, caching the results in memory.
+// fetchAndParseIndex returns the parsed index for idxURL. Concurrent workers needing the
+// same index share one fetch; workers needing different indexes never block each other.
 func (g *GFSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) ([]gfsIdxRecord, error) {
-	g.idxMu.Lock()
-	defer g.idxMu.Unlock()
+	return g.indexCache.get(idxURL, func() ([]gfsIdxRecord, error) {
+		return g.fetchIndex(ctx, idxURL)
+	})
+}
 
-	if g.parsedIndexCache == nil {
-		g.parsedIndexCache = make(map[string][]gfsIdxRecord)
-	}
-	if records, exists := g.parsedIndexCache[idxURL]; exists {
-		return records, nil
-	}
-
+// fetchIndex downloads and parses a single GRIB index file.
+func (g *GFSDriver) fetchIndex(ctx context.Context, idxURL string) ([]gfsIdxRecord, error) {
 	var rawBytes []byte
 	var fetchErr error
 	const maxIdxAttempts = 8
@@ -359,7 +355,6 @@ func (g *GFSDriver) fetchAndParseIndex(ctx context.Context, idxURL string) ([]gf
 		return nil, err
 	}
 
-	g.parsedIndexCache[idxURL] = records
 	return records, nil
 }
 
