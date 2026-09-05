@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { RouteResult } from '../types';
 import {
-  POINT_OF_SAIL_CONFIG,
-  getPointOfSail,
+  POINT_OF_SAIL_METAS,
   getPointOfSailRangeLabel,
   PointOfSail,
 } from '../config/pointOfSail';
@@ -10,6 +9,7 @@ import { Compass, Wind, Info } from 'lucide-react';
 
 interface WindRoseProps {
   routeResult: RouteResult;
+  compact?: boolean;
 }
 
 export interface TwaSectorData {
@@ -29,26 +29,44 @@ export interface TwaSectorData {
   maxWindKts: number;
 }
 
-// 6 Angular Sectors of 30° each covering 0° to 180° TWA
-const SECTOR_SPAN_DEG = 30;
-const SECTOR_COUNT = 6; // 0-30, 30-60, 60-90, 90-120, 120-150, 150-180
+// 12 Even 15° Angular Sectors spanning 0° to 180° TWA:
+// Points of Sail borders align directly with one or more 15° sectors:
+// - Close Hauled:  0°–15°, 15°–30°, 30°–45°, 45°–60° (4 sectors)
+// - Close Reach:   60°–75° (1 sector)
+// - Beam Reach:    75°–90°, 90°–105° (2 sectors, centered on 90° beam)
+// - Broad Reach:   105°–120°, 120°–135°, 135°–150° (3 sectors)
+// - Dead Downwind: 150°–165°, 165°–180° (2 sectors)
+const TWA_15DEG_SECTORS_DEF: {
+  pos: PointOfSail;
+  startAngle: number;
+  endAngle: number;
+  label: string;
+  shortLabel: string;
+}[] = [
+  { pos: 'close_hauled', startAngle: 0, endAngle: 15, label: '0° – 15° (Pinching / Irons)', shortLabel: '0°–15°' },
+  { pos: 'close_hauled', startAngle: 15, endAngle: 30, label: '15° – 30° (Close Hauled / Beating)', shortLabel: '15°–30°' },
+  { pos: 'close_hauled', startAngle: 30, endAngle: 45, label: '30° – 45° (Close Hauled / Beating)', shortLabel: '30°–45°' },
+  { pos: 'close_hauled', startAngle: 45, endAngle: 60, label: '45° – 60° (Full & By / Close Hauled)', shortLabel: '45°–60°' },
+  { pos: 'close_reach', startAngle: 60, endAngle: 75, label: '60° – 75° (Close Reach)', shortLabel: '60°–75°' },
+  { pos: 'beam_reach', startAngle: 75, endAngle: 90, label: '75° – 90° (Beam Reach Forward)', shortLabel: '75°–90°' },
+  { pos: 'beam_reach', startAngle: 90, endAngle: 105, label: '90° – 105° (Beam Reach Aft)', shortLabel: '90°–105°' },
+  { pos: 'broad_reach', startAngle: 105, endAngle: 120, label: '105° – 120° (Broad Reach)', shortLabel: '105°–120°' },
+  { pos: 'broad_reach', startAngle: 120, endAngle: 135, label: '120° – 135° (Broad Reach)', shortLabel: '120°–135°' },
+  { pos: 'broad_reach', startAngle: 135, endAngle: 150, label: '135° – 150° (Deep Broad Reach)', shortLabel: '135°–150°' },
+  { pos: 'dead_downwind', startAngle: 150, endAngle: 165, label: '150° – 165° (Training Run / Downwind)', shortLabel: '150°–165°' },
+  { pos: 'dead_downwind', startAngle: 165, endAngle: 180, label: '165° – 180° (Dead Downwind / Stern)', shortLabel: '165°–180°' },
+];
 
-export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
+export const WindRose: React.FC<WindRoseProps> = ({ routeResult, compact = false }) => {
   const [hoveredSector, setHoveredSector] = useState<TwaSectorData | null>(null);
 
-  // Compute 6 30° TWA angle sectors and global passage point of sail telemetry
-  const { sectors, dominantSector, totalStats } = useMemo(() => {
+  // Compute the 12 even 15° TWA angle sectors and passage point of sail telemetry
+  const { sectors, dominantSector, posBreakdown } = useMemo(() => {
     const wps = routeResult?.waypoints || [];
     const n = wps.length;
 
-    // Initialize 6 buckets of 30° each
-    const buckets: {
-      count: number;
-      hours: number;
-      distNM: number;
-      sumWind: number;
-      maxWind: number;
-    }[] = Array.from({ length: SECTOR_COUNT }, () => ({
+    // Initialize 12 buckets matching the 15° sector boundaries
+    const buckets = TWA_15DEG_SECTORS_DEF.map(() => ({
       count: 0,
       hours: 0,
       distNM: 0,
@@ -58,14 +76,6 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
 
     let totalDurationHours = 0;
     let totalDistanceNM = 0;
-
-    let totalUpwindHours = 0;
-    let totalReachingHours = 0;
-    let totalDownwindHours = 0;
-
-    let totalUpwindDist = 0;
-    let totalReachingDist = 0;
-    let totalDownwindDist = 0;
 
     for (let i = 0; i < n; i++) {
       const wp = wps[i];
@@ -89,22 +99,9 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
 
       // Absolute True Wind Angle (0° to 180°), independent of Port or Starboard tack
       const twa = Math.min(180, Math.max(0, Math.abs(wp.twa_deg)));
-      const pos = getPointOfSail(twa);
 
-      if (pos === 'upwind') {
-        totalUpwindHours += stepHours;
-        totalUpwindDist += stepDist;
-      } else if (pos === 'reaching') {
-        totalReachingHours += stepHours;
-        totalReachingDist += stepDist;
-      } else {
-        totalDownwindHours += stepHours;
-        totalDownwindDist += stepDist;
-      }
-
-      // Assign to 30° bucket (0..5)
-      let bucketIdx = Math.floor(twa / SECTOR_SPAN_DEG);
-      if (bucketIdx >= SECTOR_COUNT) bucketIdx = SECTOR_COUNT - 1;
+      // 15° even dissection: index is floor(twa / 15), clamped to 0..11
+      const bucketIdx = Math.min(11, Math.floor(twa / 15.0));
 
       const b = buckets[bucketIdx];
       b.count++;
@@ -116,29 +113,22 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
 
     const totalWeightHours = Math.max(0.1, totalDurationHours);
 
-    // Build the 6 TwaSectorData items
-    const sectorList: TwaSectorData[] = buckets.map((b, idx) => {
-      const startAngle = idx * SECTOR_SPAN_DEG;
-      const endAngle = (idx + 1) * SECTOR_SPAN_DEG;
-      const midAngle = (startAngle + endAngle) / 2;
-
-      // Determine Point of Sail category for this 30° sector (based on its midpoint)
-      const pos = getPointOfSail(midAngle);
-      const color = POINT_OF_SAIL_CONFIG.colors[pos];
+    // Build the 12 TwaSectorData items
+    const sectorList: TwaSectorData[] = TWA_15DEG_SECTORS_DEF.map((def, idx) => {
+      const b = buckets[idx];
+      const midAngle = (def.startAngle + def.endAngle) / 2;
+      const meta = POINT_OF_SAIL_METAS[def.pos];
       const pctTime = (b.hours / totalWeightHours) * 100;
-
-      const label = `${startAngle}° – ${endAngle}° TWA`;
-      const shortLabel = `${startAngle}°–${endAngle}°`;
 
       return {
         index: idx,
-        startAngle,
-        endAngle,
+        startAngle: def.startAngle,
+        endAngle: def.endAngle,
         midAngle,
-        label,
-        shortLabel,
-        pos,
-        color,
+        label: `${def.label} • ${meta.label}`,
+        shortLabel: def.shortLabel,
+        pos: def.pos,
+        color: meta.color,
         count: b.count,
         hours: b.hours,
         distNM: b.distNM,
@@ -151,26 +141,27 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
     const dominant =
       [...sectorList].sort((a, b) => b.pctTime - a.pctTime)[0] || sectorList[0];
 
-    const upwindPct = (totalUpwindHours / totalWeightHours) * 100;
-    const reachingPct = (totalReachingHours / totalWeightHours) * 100;
-    const downwindPct = (totalDownwindHours / totalWeightHours) * 100;
+    // Aggregate telemetry by the 5 Points of Sail (each encompassing 1 or more 15° sectors)
+    const posKeys: PointOfSail[] = ['close_hauled', 'close_reach', 'beam_reach', 'broad_reach', 'dead_downwind'];
+    const posBreakdown = posKeys.map((key) => {
+      const matchingSectors = sectorList.filter((s) => s.pos === key);
+      const hours = matchingSectors.reduce((acc, s) => acc + s.hours, 0);
+      const distNM = matchingSectors.reduce((acc, s) => acc + s.distNM, 0);
+      const pctTime = matchingSectors.reduce((acc, s) => acc + s.pctTime, 0);
+
+      return {
+        pos: key,
+        meta: POINT_OF_SAIL_METAS[key],
+        pctTime,
+        hours,
+        distNM,
+      };
+    });
 
     return {
       sectors: sectorList,
       dominantSector: dominant,
-      totalStats: {
-        upwindPct,
-        reachingPct,
-        downwindPct,
-        totalUpwindHours,
-        totalReachingHours,
-        totalDownwindHours,
-        totalUpwindDist,
-        totalReachingDist,
-        totalDownwindDist,
-        totalDurationHours,
-        totalDistanceNM,
-      },
+      posBreakdown,
     };
   }, [routeResult]);
 
@@ -186,12 +177,12 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
   const maxScalePct = numRings * ringStep;
 
   // SVG Semicircle Dial Dimensions (0° Top -> 90° Right -> 180° Bottom)
-  const SVG_WIDTH = 370;
-  const SVG_HEIGHT = 410;
-  const CX = 75;
-  const CY = 205;
-  const MAX_RADIUS = 175;
-  const LABEL_RADIUS = 205;
+  const SVG_WIDTH = compact ? 260 : 370;
+  const SVG_HEIGHT = compact ? 280 : 410;
+  const CX = compact ? 45 : 75;
+  const CY = compact ? 140 : 205;
+  const MAX_RADIUS = compact ? 115 : 175;
+  const LABEL_RADIUS = compact ? 135 : 205;
 
   // Polar to Cartesian conversion for semicircle:
   // 0° is Top (0, -r), 90° is Right (+r, 0), 180° is Bottom (0, +r)
@@ -219,34 +210,58 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
 
   const scaleRadius = (pct: number) => (Math.min(pct, maxScalePct) / maxScalePct) * MAX_RADIUS;
 
-  // 7 Dial Spoke Marks at 0°, 30°, 60°, 90°, 120°, 150°, 180°
-  const spokeAngles = [0, 30, 60, 90, 120, 150, 180];
+  // 15° even spoke lines for all 12 dissections (0°, 15°, 30°, 45°, 60°, 75°, 90°, 105°, 120°, 135°, 150°, 165°, 180°)
+  // Point of Sail transition boundaries: 0°, 60°, 75°, 105°, 150°, 180°
+  const spokeAngles = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
+  const boundaryAngles = new Set([0, 60, 75, 90, 105, 150, 180]);
 
-  const dialMarks = [
-    { angleDeg: 0, label: '0° Bow (Headwind)', textAnchor: 'middle', offsetY: -12, offsetX: 0, isMajor: true },
-    { angleDeg: 30, label: '30°', textAnchor: 'start', offsetY: -6, offsetX: 8, isMajor: false },
-    { angleDeg: 60, label: '60°', textAnchor: 'start', offsetY: -2, offsetX: 10, isMajor: false },
-    { angleDeg: 90, label: '90° Beam', textAnchor: 'start', offsetY: 0, offsetX: 12, isMajor: true },
-    { angleDeg: 120, label: '120°', textAnchor: 'start', offsetY: 4, offsetX: 10, isMajor: false },
-    { angleDeg: 150, label: '150°', textAnchor: 'start', offsetY: 8, offsetX: 8, isMajor: false },
-    { angleDeg: 180, label: '180° Stern (Run)', textAnchor: 'middle', offsetY: 16, offsetX: 0, isMajor: true },
-  ];
+  const dialMarks = compact
+    ? [
+        { angleDeg: 0, label: '0° Bow', textAnchor: 'middle', offsetY: -8, offsetX: 0, isMajor: true },
+        { angleDeg: 30, label: '30°', textAnchor: 'start', offsetY: -4, offsetX: 5, isMajor: false },
+        { angleDeg: 60, label: '60°', textAnchor: 'start', offsetY: -2, offsetX: 6, isMajor: true },
+        { angleDeg: 75, label: '75°', textAnchor: 'start', offsetY: -1, offsetX: 6, isMajor: false },
+        { angleDeg: 90, label: '90° Beam', textAnchor: 'start', offsetY: 0, offsetX: 7, isMajor: true },
+        { angleDeg: 105, label: '105°', textAnchor: 'start', offsetY: 2, offsetX: 6, isMajor: false },
+        { angleDeg: 120, label: '120°', textAnchor: 'start', offsetY: 4, offsetX: 5, isMajor: false },
+        { angleDeg: 150, label: '150°', textAnchor: 'start', offsetY: 6, offsetX: 6, isMajor: true },
+        { angleDeg: 180, label: '180° Stern', textAnchor: 'middle', offsetY: 12, offsetX: 0, isMajor: true },
+      ]
+    : [
+        { angleDeg: 0, label: '0° Bow (Headwind)', textAnchor: 'middle', offsetY: -12, offsetX: 0, isMajor: true },
+        { angleDeg: 30, label: '30°', textAnchor: 'start', offsetY: -6, offsetX: 6, isMajor: false },
+        { angleDeg: 60, label: '60° Close Reach', textAnchor: 'start', offsetY: -3, offsetX: 8, isMajor: true },
+        { angleDeg: 75, label: '75° Beam Start', textAnchor: 'start', offsetY: -1, offsetX: 9, isMajor: false },
+        { angleDeg: 90, label: '90° Pure Beam', textAnchor: 'start', offsetY: 0, offsetX: 10, isMajor: true },
+        { angleDeg: 105, label: '105° Broad Start', textAnchor: 'start', offsetY: 2, offsetX: 9, isMajor: false },
+        { angleDeg: 120, label: '120°', textAnchor: 'start', offsetY: 4, offsetX: 8, isMajor: false },
+        { angleDeg: 135, label: '135°', textAnchor: 'start', offsetY: 6, offsetX: 7, isMajor: false },
+        { angleDeg: 150, label: '150° Downwind', textAnchor: 'start', offsetY: 7, offsetX: 8, isMajor: true },
+        { angleDeg: 180, label: '180° Stern (Dead Run)', textAnchor: 'middle', offsetY: 16, offsetX: 0, isMajor: true },
+      ];
 
   return (
-    <div className="wind-rose-card">
+    <div className={`wind-rose-card ${compact ? 'compact' : ''}`}>
       {/* Header */}
       <div className="wind-rose-header">
         <div className="wind-rose-title-group">
           <div className="wind-rose-icon-badge">
-            <Wind size={18} color="#38bdf8" />
+            <Wind size={compact ? 15 : 18} color="#06b6d4" />
           </div>
           <div>
             <div className="wind-rose-main-title">
               <span>Wind Angle Rose (TWA)</span>
+              {compact && dominantSector && (
+                <span className="wind-rose-badge">
+                  {dominantSector.pctTime.toFixed(0)}% {dominantSector.shortLabel}
+                </span>
+              )}
             </div>
-            <p className="wind-rose-subtitle">
-              Passage duration distribution across True Wind Angle buckets (Port &amp; Starboard combined)
-            </p>
+            {!compact && (
+              <p className="wind-rose-subtitle">
+                Passage duration distribution across True Wind Angle buckets (Port &amp; Starboard combined)
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -292,7 +307,7 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
                         d={createWedgePath(rOuter, startAngle, endAngle)}
                         fill={s.color}
                         fillOpacity={isHovered ? 0.95 : 0.82}
-                        stroke={isHovered ? '#ffffff' : 'rgba(255, 255, 255, 0.15)'}
+                        stroke={isHovered ? '#ffffff' : 'rgba(255, 255, 255, 0.2)'}
                         strokeWidth={isHovered ? 1.8 : 0.8}
                       />
 
@@ -325,9 +340,9 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
                       {/* Percentage Ring Label along 90° Beam axis */}
                       <text
                         x={CX + r + 3}
-                        y={CY - 4}
+                        y={CY - 3}
                         fill="#94a3b8"
-                        fontSize="9"
+                        fontSize={compact ? '7.5' : '9'}
                         fontFamily="var(--font-mono)"
                         fontWeight="700"
                         textAnchor="start"
@@ -339,14 +354,15 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
                   );
                 })}
                 {/* 0% Center Point */}
-                <circle cx={CX} cy={CY} r="3" fill="#cbd5e1" style={{ pointerEvents: 'none' }} />
+                <circle cx={CX} cy={CY} r={compact ? '2.5' : '3'} fill="#cbd5e1" style={{ pointerEvents: 'none' }} />
               </g>
 
               {/* 3. RADIAL SPOKE LINES (DRAWN ABOVE SEGMENTS) */}
               <g className="wind-rose-spokes" style={{ pointerEvents: 'none' }}>
                 {spokeAngles.map((angle) => {
-                  const spokeEnd = polarToXY(MAX_RADIUS + 6, angle);
-                  const isMajor = angle % 90 === 0;
+                  const isBoundary = boundaryAngles.has(angle);
+                  const isMajor = angle === 0 || angle === 90 || angle === 180;
+                  const spokeEnd = polarToXY(MAX_RADIUS + (isMajor ? 7 : isBoundary ? 5 : 3), angle);
                   return (
                     <line
                       key={angle}
@@ -354,8 +370,15 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
                       y1={CY}
                       x2={spokeEnd.x}
                       y2={spokeEnd.y}
-                      stroke={isMajor ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.16)'}
-                      strokeWidth={isMajor ? '1.3' : '0.9'}
+                      stroke={
+                        isMajor
+                          ? 'rgba(255, 255, 255, 0.45)'
+                          : isBoundary
+                          ? 'rgba(255, 255, 255, 0.28)'
+                          : 'rgba(255, 255, 255, 0.12)'
+                      }
+                      strokeWidth={isMajor ? '1.4' : isBoundary ? '1.0' : '0.6'}
+                      strokeDasharray={!isBoundary && !isMajor ? '2 2' : undefined}
                     />
                   );
                 })}
@@ -384,7 +407,7 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
                           ? '#f8fafc'
                           : '#94a3b8'
                       }
-                      fontSize={mark.isMajor ? '11' : '9.5'}
+                      fontSize={compact ? (mark.isMajor ? '8.5' : '7.5') : (mark.isMajor ? '11' : '9.5')}
                       fontWeight={mark.isMajor ? '700' : '600'}
                       fontFamily="var(--font-sans)"
                       className="wind-rose-dir-label"
@@ -412,7 +435,7 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
                       border: `1px solid ${hoveredSector.color}44`,
                     }}
                   >
-                    {hoveredSector.pos.toUpperCase()} ({getPointOfSailRangeLabel(hoveredSector.pos)})
+                    {POINT_OF_SAIL_METAS[hoveredSector.pos].label.toUpperCase()} ({getPointOfSailRangeLabel(hoveredSector.pos)})
                   </span>
                 </div>
                 <div className="hover-detail-bottom-row">
@@ -431,8 +454,8 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
               </div>
             ) : (
               <div className="hover-detail-placeholder">
-                <Info size={14} className="text-accent" />
-                <span>Hover over any wind angle sector to inspect duration, distance, and wind telemetry</span>
+                <Info size={13} className="text-accent" />
+                <span>Hover over any wind angle sector to inspect duration, distance, and wind speed</span>
               </div>
             )}
           </div>
@@ -442,109 +465,65 @@ export const WindRose: React.FC<WindRoseProps> = ({ routeResult }) => {
         <div className="wind-rose-telemetry-column">
           {/* 1. Point of Sail Definitions Card */}
           <div className="wind-rose-legend-card">
-            <span className="legend-card-title">POINT OF SAIL DEFINITIONS</span>
+            <span className="legend-card-title">POINT OF SAIL BREAKDOWN</span>
 
             <div className="legend-items-list">
-              {/* Upwind */}
-              <div className="legend-pos-item">
-                <div className="legend-pos-header">
-                  <div
-                    className="legend-color-dot"
-                    style={{ backgroundColor: POINT_OF_SAIL_CONFIG.colors.upwind }}
-                  />
-                  <span className="legend-pos-name">Upwind (Beating / Close-hauled)</span>
+              {posBreakdown.map((item) => (
+                <div
+                  key={item.pos}
+                  className={`legend-pos-item ${hoveredSector?.pos === item.pos ? 'highlighted' : ''}`}
+                  onMouseEnter={() => {
+                    const matched = sectors.find((s) => s.pos === item.pos);
+                    if (matched) setHoveredSector(matched);
+                  }}
+                  onMouseLeave={() => setHoveredSector(null)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="legend-pos-header">
+                    <div
+                      className="legend-color-dot"
+                      style={{ backgroundColor: item.meta.color }}
+                    />
+                    <span className="legend-pos-name">{item.meta.label}</span>
+                  </div>
+                  <div className="legend-pos-meta">
+                    <span className="legend-range-tag">{getPointOfSailRangeLabel(item.pos)} TWA</span>
+                    <span
+                      className="legend-pct-val"
+                      style={{ color: item.meta.color }}
+                    >
+                      {item.pctTime.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="legend-sub-stats">
+                    <span>{item.hours.toFixed(1)} hrs</span>
+                    <span>•</span>
+                    <span>{item.distNM.toFixed(1)} NM sailed</span>
+                  </div>
                 </div>
-                <div className="legend-pos-meta">
-                  <span className="legend-range-tag">{getPointOfSailRangeLabel('upwind')} TWA</span>
-                  <span
-                    className="legend-pct-val"
-                    style={{ color: POINT_OF_SAIL_CONFIG.colors.upwind }}
-                  >
-                    {totalStats.upwindPct.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="legend-sub-stats">
-                  <span>{totalStats.totalUpwindHours.toFixed(1)} hrs</span>
-                  <span>•</span>
-                  <span>{totalStats.totalUpwindDist.toFixed(1)} NM sailed</span>
-                </div>
-              </div>
-
-              {/* Reaching */}
-              <div className="legend-pos-item">
-                <div className="legend-pos-header">
-                  <div
-                    className="legend-color-dot"
-                    style={{ backgroundColor: POINT_OF_SAIL_CONFIG.colors.reaching }}
-                  />
-                  <span className="legend-pos-name">Reaching (Beam / Broad Reach)</span>
-                </div>
-                <div className="legend-pos-meta">
-                  <span className="legend-range-tag">{getPointOfSailRangeLabel('reaching')} TWA</span>
-                  <span
-                    className="legend-pct-val"
-                    style={{ color: POINT_OF_SAIL_CONFIG.colors.reaching }}
-                  >
-                    {totalStats.reachingPct.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="legend-sub-stats">
-                  <span>{totalStats.totalReachingHours.toFixed(1)} hrs</span>
-                  <span>•</span>
-                  <span>{totalStats.totalReachingDist.toFixed(1)} NM sailed</span>
-                </div>
-              </div>
-
-              {/* Downwind */}
-              <div className="legend-pos-item">
-                <div className="legend-pos-header">
-                  <div
-                    className="legend-color-dot"
-                    style={{ backgroundColor: POINT_OF_SAIL_CONFIG.colors.downwind }}
-                  />
-                  <span className="legend-pos-name">Downwind (Running / Deep)</span>
-                </div>
-                <div className="legend-pos-meta">
-                  <span className="legend-range-tag">{getPointOfSailRangeLabel('downwind')} TWA</span>
-                  <span
-                    className="legend-pct-val"
-                    style={{ color: POINT_OF_SAIL_CONFIG.colors.downwind }}
-                  >
-                    {totalStats.downwindPct.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="legend-sub-stats">
-                  <span>{totalStats.totalDownwindHours.toFixed(1)} hrs</span>
-                  <span>•</span>
-                  <span>{totalStats.totalDownwindDist.toFixed(1)} NM sailed</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
           {/* 2. Dominant Wind Angle Card */}
           <div className="wind-rose-dominant-card">
             <div className="dominant-card-header">
-              <Compass size={15} color="#38bdf8" />
+              <Compass size={14} color="#06b6d4" />
               <span>DOMINANT WIND REGIME</span>
             </div>
             <div className="dominant-sector-display">
               <div
                 className="dominant-sector-badge"
                 style={{
-                  background:
-                    dominantSector.pos === 'upwind'
-                      ? 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)'
-                      : dominantSector.pos === 'reaching'
-                      ? 'linear-gradient(135deg, #059669 0%, #047857 100%)'
-                      : 'linear-gradient(135deg, #7e22ce 0%, #6b21a8 100%)',
+                  background: dominantSector.color,
+                  boxShadow: `0 4px 14px ${dominantSector.color}44`,
                 }}
               >
                 {dominantSector.shortLabel}
               </div>
               <div className="dominant-sector-info">
                 <span className="dominant-sector-pct">
-                  {dominantSector.pctTime.toFixed(1)}% of passage
+                  {dominantSector.pctTime.toFixed(1)}% of passage ({POINT_OF_SAIL_METAS[dominantSector.pos].label})
                 </span>
                 <span className="dominant-sector-dur">
                   {dominantSector.hours.toFixed(1)}h duration • {dominantSector.distNM.toFixed(1)} NM

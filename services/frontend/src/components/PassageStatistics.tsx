@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { getWindColor, getWaveIntensityColor } from './TimelineTable';
 import {
+  POINT_OF_SAIL_METAS,
   getPointOfSail,
   getPointOfSailRangeLabel,
 } from '../config/pointOfSail';
@@ -83,13 +84,17 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
         : `${durRemHours}h ${durMinutes}m (${durHours.toFixed(1)} hrs)`;
 
     // 2. Wind breakdown & Point of Sail percentages
-    let upwindCount = 0;
-    let reachingCount = 0;
-    let downwindCount = 0;
+    let closeHauledCount = 0;
+    let closeReachCount = 0;
+    let beamReachCount = 0;
+    let broadReachCount = 0;
+    let deadDownwindCount = 0;
 
-    let upwindDist = 0;
-    let reachingDist = 0;
-    let downwindDist = 0;
+    let closeHauledDist = 0;
+    let closeReachDist = 0;
+    let beamReachDist = 0;
+    let broadReachDist = 0;
+    let deadDownwindDist = 0;
 
     let minWind = Infinity;
     let maxWind = -Infinity;
@@ -119,20 +124,28 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       const prevWp = i > 0 ? wps[i - 1] : wp;
       const stepDist = Math.max(0, wp.distance_nm - prevWp.distance_nm);
 
-      // Point of Sail by TWA using deploy-time configurable thresholds:
-      // Upwind: TWA < reachingStartDeg (default < 90°)
-      // Reaching: reachingStartDeg <= TWA < reachingStopDeg (default 90° <= TWA < 150°)
-      // Downwind: TWA >= reachingStopDeg (default >= 150°)
+      // Fine-grained Point of Sail:
+      // - close_hauled:  < 60°
+      // - close_reach:   60° – 80°
+      // - beam_reach:    80° – 110°
+      // - broad_reach:   110° – 160°
+      // - dead_downwind: 160° – 180°
       const pos = getPointOfSail(wp.twa_deg);
-      if (pos === 'upwind') {
-        upwindCount++;
-        upwindDist += stepDist;
-      } else if (pos === 'reaching') {
-        reachingCount++;
-        reachingDist += stepDist;
+      if (pos === 'close_hauled') {
+        closeHauledCount++;
+        closeHauledDist += stepDist;
+      } else if (pos === 'close_reach') {
+        closeReachCount++;
+        closeReachDist += stepDist;
+      } else if (pos === 'beam_reach') {
+        beamReachCount++;
+        beamReachDist += stepDist;
+      } else if (pos === 'broad_reach') {
+        broadReachCount++;
+        broadReachDist += stepDist;
       } else {
-        downwindCount++;
-        downwindDist += stepDist;
+        deadDownwindCount++;
+        deadDownwindDist += stepDist;
       }
 
       // Wind stats
@@ -171,9 +184,19 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       sumHeel += wp.estimated_heel_deg;
     }
 
-    const pctUpwind = (upwindCount / n) * 100;
-    const pctReaching = (reachingCount / n) * 100;
-    const pctDownwind = (downwindCount / n) * 100;
+    const pctCloseHauled = (closeHauledCount / n) * 100;
+    const pctCloseReach = (closeReachCount / n) * 100;
+    const pctBeamReach = (beamReachCount / n) * 100;
+    const pctBroadReach = (broadReachCount / n) * 100;
+    const pctDeadDownwind = (deadDownwindCount / n) * 100;
+
+    // Backward-compatible groupings for legacy references
+    const pctUpwind = pctCloseHauled;
+    const pctReaching = pctBeamReach + pctBroadReach;
+    const pctDownwind = pctDeadDownwind;
+    const upwindDist = closeHauledDist;
+    const reachingDist = beamReachDist + broadReachDist;
+    const downwindDist = deadDownwindDist;
 
     const avgWind = sumWind / n;
     const avgGust = sumGust / n;
@@ -187,6 +210,16 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
       arrivalDate,
       formattedDuration,
       durHours,
+      pctCloseHauled,
+      pctCloseReach,
+      pctBeamReach,
+      pctBroadReach,
+      pctDeadDownwind,
+      closeHauledDist,
+      closeReachDist,
+      beamReachDist,
+      broadReachDist,
+      deadDownwindDist,
       pctUpwind,
       pctReaching,
       pctDownwind,
@@ -1017,33 +1050,51 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
                 </tr>
 
                 {/* 4. Points of Sail Breakdowns */}
-                <tr title={`Beating / Close-hauled (${getPointOfSailRangeLabel('upwind')} TWA) • ${stats.upwindDist.toFixed(1)} NM sailed`}>
-                  <td className="row-category" rowSpan={3}>
+                <tr title={`Close-hauled (< 60° TWA) • ${stats.closeHauledDist.toFixed(1)} NM sailed • Least comfortable (hard beating)`}>
+                  <td className="row-category" rowSpan={5}>
                     <Compass size={16} /> Points of Sail
                   </td>
                   <td className="metric-label">
-                    <span className="pos-indicator pos-upwind"></span> Percentage Upwind ({getPointOfSailRangeLabel('upwind')})
+                    <span className="pos-indicator pos-close-hauled"></span> Close Hauled ({getPointOfSailRangeLabel('close_hauled')})
                   </td>
-                  <td className="metric-value font-mono text-cyan">
-                    {stats.pctUpwind.toFixed(1)}%
-                  </td>
-                </tr>
-
-                <tr title={`Reaching (${getPointOfSailRangeLabel('reaching')} TWA) • ${stats.reachingDist.toFixed(1)} NM sailed`}>
-                  <td className="metric-label">
-                    <span className="pos-indicator pos-reaching"></span> Percentage Reaching ({getPointOfSailRangeLabel('reaching')})
-                  </td>
-                  <td className="metric-value font-mono text-emerald">
-                    {stats.pctReaching.toFixed(1)}%
+                  <td className="metric-value font-mono" style={{ color: POINT_OF_SAIL_METAS.close_hauled.color, fontWeight: 600 }}>
+                    {stats.pctCloseHauled.toFixed(1)}%
                   </td>
                 </tr>
 
-                <tr title={`Running / Downwind (${getPointOfSailRangeLabel('downwind')} TWA) • ${stats.downwindDist.toFixed(1)} NM sailed`}>
+                <tr title={`Close reach (60° – 75° TWA) • ${stats.closeReachDist.toFixed(1)} NM sailed`}>
                   <td className="metric-label">
-                    <span className="pos-indicator pos-downwind"></span> Percentage Downwind ({getPointOfSailRangeLabel('downwind')})
+                    <span className="pos-indicator pos-close-reach"></span> Close Reach ({getPointOfSailRangeLabel('close_reach')})
                   </td>
-                  <td className="metric-value font-mono text-purple">
-                    {stats.pctDownwind.toFixed(1)}%
+                  <td className="metric-value font-mono" style={{ color: POINT_OF_SAIL_METAS.close_reach.color, fontWeight: 600 }}>
+                    {stats.pctCloseReach.toFixed(1)}%
+                  </td>
+                </tr>
+
+                <tr title={`Beam reach (75° – 105° TWA) • ${stats.beamReachDist.toFixed(1)} NM sailed • Optimal / Sweet Spot`}>
+                  <td className="metric-label">
+                    <span className="pos-indicator pos-beam-reach"></span> Beam Reach ({getPointOfSailRangeLabel('beam_reach')})
+                  </td>
+                  <td className="metric-value font-mono" style={{ color: POINT_OF_SAIL_METAS.beam_reach.color, fontWeight: 700 }}>
+                    {stats.pctBeamReach.toFixed(1)}%
+                  </td>
+                </tr>
+
+                <tr title={`Broad reach (105° – 150° TWA) • ${stats.broadReachDist.toFixed(1)} NM sailed • Very comfortable motion`}>
+                  <td className="metric-label">
+                    <span className="pos-indicator pos-broad-reach"></span> Broad Reach ({getPointOfSailRangeLabel('broad_reach')})
+                  </td>
+                  <td className="metric-value font-mono" style={{ color: POINT_OF_SAIL_METAS.broad_reach.color, fontWeight: 700 }}>
+                    {stats.pctBroadReach.toFixed(1)}%
+                  </td>
+                </tr>
+
+                <tr title={`Dead downwind (150° – 180° TWA) • ${stats.deadDownwindDist.toFixed(1)} NM sailed`}>
+                  <td className="metric-label">
+                    <span className="pos-indicator pos-dead-downwind"></span> Dead Downwind ({getPointOfSailRangeLabel('dead_downwind')})
+                  </td>
+                  <td className="metric-value font-mono" style={{ color: POINT_OF_SAIL_METAS.dead_downwind.color, fontWeight: 600 }}>
+                    {stats.pctDeadDownwind.toFixed(1)}%
                   </td>
                 </tr>
 
@@ -1154,32 +1205,58 @@ export const PassageStatistics: React.FC<PassageStatisticsProps> = ({
           <span>Point of Sail Distribution (% Time)</span>
           <div className="pos-legend">
             <span className="legend-item">
-              <span className="dot dot-cyan"></span> Upwind ({getPointOfSailRangeLabel('upwind')}) — {stats.pctUpwind.toFixed(1)}%
+              <span className="dot dot-red"></span> Close Hauled ({getPointOfSailRangeLabel('close_hauled')}) — {stats.pctCloseHauled.toFixed(1)}%
             </span>
             <span className="legend-item">
-              <span className="dot dot-emerald"></span> Reaching ({getPointOfSailRangeLabel('reaching')}) — {stats.pctReaching.toFixed(1)}%
+              <span className="dot dot-amber"></span> Close Reach ({getPointOfSailRangeLabel('close_reach')}) — {stats.pctCloseReach.toFixed(1)}%
             </span>
             <span className="legend-item">
-              <span className="dot dot-purple"></span> Downwind ({getPointOfSailRangeLabel('downwind')}) — {stats.pctDownwind.toFixed(1)}%
+              <span className="dot dot-emerald"></span> Beam Reach ({getPointOfSailRangeLabel('beam_reach')}) — {stats.pctBeamReach.toFixed(1)}%
+            </span>
+            <span className="legend-item">
+              <span className="dot dot-cyan"></span> Broad Reach ({getPointOfSailRangeLabel('broad_reach')}) — {stats.pctBroadReach.toFixed(1)}%
+            </span>
+            <span className="legend-item">
+              <span className="dot dot-purple"></span> Downwind ({getPointOfSailRangeLabel('dead_downwind')}) — {stats.pctDeadDownwind.toFixed(1)}%
             </span>
           </div>
         </div>
         <div className="pos-progress-track">
-          <div
-            className="pos-seg pos-seg-upwind"
-            style={{ width: `${stats.pctUpwind}%` }}
-            title={`Upwind (${getPointOfSailRangeLabel('upwind')}): ${stats.pctUpwind.toFixed(1)}% • ${stats.upwindDist.toFixed(1)} NM`}
-          />
-          <div
-            className="pos-seg pos-seg-reaching"
-            style={{ width: `${stats.pctReaching}%` }}
-            title={`Reaching (${getPointOfSailRangeLabel('reaching')}): ${stats.pctReaching.toFixed(1)}% • ${stats.reachingDist.toFixed(1)} NM`}
-          />
-          <div
-            className="pos-seg pos-seg-downwind"
-            style={{ width: `${stats.pctDownwind}%` }}
-            title={`Downwind (${getPointOfSailRangeLabel('downwind')}): ${stats.pctDownwind.toFixed(1)}% • ${stats.downwindDist.toFixed(1)} NM`}
-          />
+          {stats.pctCloseHauled > 0 && (
+            <div
+              className="pos-seg pos-seg-close-hauled"
+              style={{ width: `${stats.pctCloseHauled}%` }}
+              title={`Close Hauled (${getPointOfSailRangeLabel('close_hauled')}): ${stats.pctCloseHauled.toFixed(1)}% • ${stats.closeHauledDist.toFixed(1)} NM`}
+            />
+          )}
+          {stats.pctCloseReach > 0 && (
+            <div
+              className="pos-seg pos-seg-close-reach"
+              style={{ width: `${stats.pctCloseReach}%` }}
+              title={`Close Reach (${getPointOfSailRangeLabel('close_reach')}): ${stats.pctCloseReach.toFixed(1)}% • ${stats.closeReachDist.toFixed(1)} NM`}
+            />
+          )}
+          {stats.pctBeamReach > 0 && (
+            <div
+              className="pos-seg pos-seg-beam-reach"
+              style={{ width: `${stats.pctBeamReach}%` }}
+              title={`Beam Reach (${getPointOfSailRangeLabel('beam_reach')}): ${stats.pctBeamReach.toFixed(1)}% • ${stats.beamReachDist.toFixed(1)} NM`}
+            />
+          )}
+          {stats.pctBroadReach > 0 && (
+            <div
+              className="pos-seg pos-seg-broad-reach"
+              style={{ width: `${stats.pctBroadReach}%` }}
+              title={`Broad Reach (${getPointOfSailRangeLabel('broad_reach')}): ${stats.pctBroadReach.toFixed(1)}% • ${stats.broadReachDist.toFixed(1)} NM`}
+            />
+          )}
+          {stats.pctDeadDownwind > 0 && (
+            <div
+              className="pos-seg pos-seg-dead-downwind"
+              style={{ width: `${stats.pctDeadDownwind}%` }}
+              title={`Dead Downwind (${getPointOfSailRangeLabel('dead_downwind')}): ${stats.pctDeadDownwind.toFixed(1)}% • ${stats.deadDownwindDist.toFixed(1)} NM`}
+            />
+          )}
         </div>
       </div>
 

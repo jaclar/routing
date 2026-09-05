@@ -323,3 +323,85 @@ export interface LandmaskPolygon {
 export interface LandmaskResponse {
   polygons: LandmaskPolygon[];
 }
+
+export interface RepresentativeWeatherEvent {
+  type: 'mid_passage' | 'peak_wind' | string;
+  time: string;
+  description: string;
+  location: Point;
+  wind_speed_kts: number;
+  wind_dir_deg: number;
+  wave_height_m: number;
+  wave_period_s: number;
+  grid_min_lat?: number;
+  grid_max_lat?: number;
+  grid_min_lon?: number;
+  grid_max_lon?: number;
+  grid_lat_step?: number;
+  grid_lon_step?: number;
+  weather_grid?: WindCondition[][];
+}
+
+export interface WindowCandidate {
+  departure_time: string;
+  arrival_time: string;
+  duration_hours: number;
+  distance_nm: number;
+  comfort_score: number;
+  comfort_rank: number;
+  confidence_score: number;
+
+  upwind_fraction: number;
+  close_reach_fraction: number;
+  beam_reach_fraction: number;
+  broad_reach_fraction: number;
+  downwind_fraction: number;
+
+  avg_wind_kts: number;
+  max_wind_kts: number;
+  avg_wave_height_m: number;
+  max_wave_height_m: number;
+  avg_wave_period_s: number;
+  max_heel_deg: number;
+  total_tacks: number;
+  total_gybes: number;
+
+  gale_warning: boolean;
+  gale_warning_detail?: string;
+  low_wind_warning: boolean;
+  low_wind_warning_detail?: string;
+  night_arrival_warning?: boolean;
+  night_arrival_warning_detail?: string;
+
+  representative_event: RepresentativeWeatherEvent;
+  route: RouteResult;
+}
+
+export interface WeatherWindowRequest {
+  start: Point;
+  dest: Point;
+  earliest_departure: string;
+  latest_departure?: string;
+  boat_preset?: string;
+  model?: string;
+  custom_boat?: BoatDetail;
+  custom_polar?: {
+    boat_name: string;
+    tws_list: number[];
+    twa_list: number[];
+    speed_matrix: number[][];
+  };
+}
+
+export interface WeatherWindowResponse {
+  start: Point;
+  dest: Point;
+  direct_distance_nm: number;
+  time_step_hours: number;
+  departure_step_hours: number;
+  evaluated_departures: number;
+  earliest_departure: string;
+  latest_departure: string;
+  windows: WindowCandidate[];
+}
+

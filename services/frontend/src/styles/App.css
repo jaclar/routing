@@ -1484,7 +1484,14 @@ body {
   border-radius: 50%;
   margin-right: 6px;
 }
-.pos-upwind { background: #38bdf8; box-shadow: 0 0 6px rgba(56, 189, 248, 0.6); }
+.pos-close-hauled { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); }
+.pos-close-reach { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.6); }
+.pos-beam-reach { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6); }
+.pos-broad-reach { background: #06b6d4; box-shadow: 0 0 6px rgba(6, 182, 212, 0.6); }
+.pos-dead-downwind { background: #a855f7; box-shadow: 0 0 6px rgba(168, 85, 247, 0.6); }
+
+/* Aliases for backwards compatibility */
+.pos-upwind { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); }
 .pos-reaching { background: #10b981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6); }
 .pos-downwind { background: #a855f7; box-shadow: 0 0 6px rgba(168, 85, 247, 0.6); }
 
@@ -1506,13 +1513,16 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-main);
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .pos-legend {
   display: flex;
-  gap: 16px;
-  font-size: 0.8rem;
+  gap: 12px;
+  font-size: 0.78rem;
   color: var(--text-muted);
+  flex-wrap: wrap;
 }
 
 .legend-item {
@@ -1526,8 +1536,10 @@ body {
   height: 8px;
   border-radius: 50%;
 }
-.dot-cyan { background: #38bdf8; }
+.dot-red { background: #ef4444; }
+.dot-amber { background: #f59e0b; }
 .dot-emerald { background: #10b981; }
+.dot-cyan { background: #06b6d4; }
 .dot-purple { background: #a855f7; }
 
 .pos-progress-track {
@@ -1543,7 +1555,13 @@ body {
   height: 100%;
   transition: width 0.3s ease;
 }
-.pos-seg-upwind { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+.pos-seg-close-hauled { background: linear-gradient(90deg, #dc2626, #ef4444); }
+.pos-seg-close-reach { background: linear-gradient(90deg, #d97706, #f59e0b); }
+.pos-seg-beam-reach { background: linear-gradient(90deg, #059669, #10b981); }
+.pos-seg-broad-reach { background: linear-gradient(90deg, #0891b2, #06b6d4); }
+.pos-seg-dead-downwind { background: linear-gradient(90deg, #7e22ce, #a855f7); }
+
+.pos-seg-upwind { background: linear-gradient(90deg, #dc2626, #ef4444); }
 .pos-seg-reaching { background: linear-gradient(90deg, #059669, #10b981); }
 .pos-seg-downwind { background: linear-gradient(90deg, #7e22ce, #a855f7); }
 
@@ -1868,6 +1886,80 @@ body {
   box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
   min-width: 54px;
   text-align: center;
+}
+
+/* Compact Mode for Drawers & Side Panels */
+.wind-rose-card.compact {
+  padding: 14px 16px;
+  gap: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.wind-rose-card.compact .wind-rose-header {
+  padding-bottom: 10px;
+}
+
+.wind-rose-card.compact .wind-rose-main-title {
+  font-size: 0.95rem;
+}
+
+.wind-rose-card.compact .wind-rose-body-grid {
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+}
+
+.wind-rose-card.compact .wind-rose-svg-container {
+  max-width: 260px;
+  aspect-ratio: 260 / 280;
+}
+
+.wind-rose-card.compact .wind-rose-hover-detail-bar {
+  height: 60px;
+  min-height: 60px;
+  max-height: 60px;
+  padding: 6px 10px;
+}
+
+.wind-rose-card.compact .hover-sector-name {
+  font-size: 0.82rem;
+}
+
+.wind-rose-card.compact .hover-stat-pill {
+  font-size: 0.68rem;
+}
+
+.wind-rose-card.compact .legend-items-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.wind-rose-card.compact .legend-pos-item {
+  padding: 6px 8px;
+  gap: 2px;
+}
+
+.wind-rose-card.compact .legend-pos-name {
+  font-size: 0.74rem;
+}
+
+.wind-rose-card.compact .legend-range-tag {
+  font-size: 0.64rem;
+  padding: 0px 4px;
+}
+
+.wind-rose-card.compact .legend-pct-val {
+  font-size: 0.84rem;
+}
+
+.wind-rose-card.compact .legend-sub-stats {
+  font-size: 0.64rem;
+}
+
+.legend-pos-item.highlighted {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
 }
 
 .dominant-sector-info {

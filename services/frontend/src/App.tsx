@@ -6,6 +6,7 @@ import { WaypointControls } from './components/WaypointControls';
 import { SettingsView } from './components/SettingsView';
 import { VPPInspector } from './components/VPPInspector';
 import { PassageStatistics } from './components/PassageStatistics';
+import { WeatherWindowFinder } from './components/WeatherWindowFinder';
 import {
   BoatPreset,
   DEFAULT_WEATHER_MODEL,
@@ -36,12 +37,13 @@ import {
   Sliders,
   BarChart3,
   Clock,
+  CalendarRange,
 } from 'lucide-react';
 import './styles/App.css';
 
 export const App: React.FC = () => {
-  // Primary view mode: 'routing' (Weather Routing) or 'settings' (Settings / VPP)
-  const [activeView, setActiveView] = useState<'routing' | 'settings' | 'vpp'>('routing');
+  // Primary view mode: 'routing', 'settings', 'vpp', or 'window-finder'
+  const [activeView, setActiveView] = useState<'routing' | 'settings' | 'vpp' | 'window-finder'>('routing');
   
   // Routing sub-tab: 'map' (Map View) or 'stats' (Passage Statistics) - ONLY shown in routing view
   const [routingSubTab, setRoutingSubTab] = useState<'map' | 'stats'>('map');
@@ -332,6 +334,23 @@ export const App: React.FC = () => {
 
                   <button
                     type="button"
+                    className={`hamburger-item ${activeView === 'window-finder' ? 'active' : ''}`}
+                    onClick={() => {
+                      setActiveView('window-finder');
+                      setIsMenuOpen(false);
+                    }}
+                  >
+                    <div className="hamburger-item-icon text-amber">
+                      <CalendarRange size={17} />
+                    </div>
+                    <div className="hamburger-item-text">
+                      <span className="hamburger-item-name">Weather Window Finder</span>
+                      <span className="hamburger-item-sub">Ranked departures &amp; passage comfort</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
                     className={`hamburger-item ${activeView === 'settings' || activeView === 'vpp' ? 'active' : ''}`}
                     onClick={() => {
                       setActiveView('settings');
@@ -351,8 +370,8 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* 2. Top Tabs (Map View vs Passage Statistics) */}
-          {activeView === 'routing' && (
+          {/* 2. Top Tabs (Map View vs Passage Statistics vs Return to Map) */}
+          {activeView === 'routing' ? (
             <div className="app-tabs-bar">
               <button
                 type="button"
@@ -373,7 +392,22 @@ export const App: React.FC = () => {
                 <span className="tab-label-short">Stats</span>
               </button>
             </div>
-          )}
+          ) : activeView === 'window-finder' ? (
+            <div className="app-tabs-bar">
+              <button
+                type="button"
+                className="tab-nav-btn"
+                onClick={() => {
+                  setActiveView('routing');
+                  setRoutingSubTab('map');
+                }}
+              >
+                <Compass size={15} />
+                <span className="tab-label-full">Return to Map</span>
+                <span className="tab-label-short">Map</span>
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {/* 3. Current Simulation Time Chip with Active Model indicator */}
@@ -577,6 +611,49 @@ export const App: React.FC = () => {
               onDeleteCustomBoat={handleDeleteCustomBoat}
             />
           </div>
+        )}
+
+        {/* 4. Weather Window Finder Dedicated View */}
+        {activeView === 'window-finder' && (
+          <WeatherWindowFinder
+            startPoint={startPoint}
+            destPoint={destPoint}
+            onStartChange={handleStartPointChange}
+            onDestChange={handleDestPointChange}
+            presets={presets}
+            selectedPresetId={selectedPresetId}
+            onSelectPreset={setSelectedPresetId}
+            onSelectWindowRoute={(route, focusTime) => {
+              setRouteResult(route);
+              const modelKey = route.model_id || activeModel;
+              setMultiRouteResult({ [modelKey]: route });
+              if (route.model_id) {
+                setActiveModel(route.model_id);
+              }
+              if (focusTime && route.waypoints && route.waypoints.length > 0) {
+                const targetMs = new Date(focusTime).getTime();
+                let closestIdx = 0;
+                let minDiff = Infinity;
+                route.waypoints.forEach((wp, idx) => {
+                  const diff = Math.abs(new Date(wp.time).getTime() - targetMs);
+                  if (diff < minDiff) {
+                    minDiff = diff;
+                    closestIdx = idx;
+                  }
+                });
+                setCurrentWaypointIndex(closestIdx);
+              } else {
+                setCurrentWaypointIndex(0);
+              }
+              setDepartureTime(new Date(route.start_time).toISOString().slice(0, 16));
+              setActiveView('routing');
+              setRoutingSubTab('map');
+            }}
+            onOpenMapPlacement={() => {
+              setActiveView('routing');
+              setRoutingSubTab('map');
+            }}
+          />
         )}
 
       </main>

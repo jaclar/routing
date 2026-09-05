@@ -8,6 +8,8 @@ import {
   MultiModelRouteResponse,
   SolveMatrixResponse,
   WeatherGridResponse,
+  WeatherWindowRequest,
+  WeatherWindowResponse,
 } from '../types';
 
 export const ROUTE_PRESETS = [
@@ -649,3 +651,23 @@ export async function fetchLandmaskPolygons(bounds?: {
     return [];
   }
 }
+
+export async function findWeatherWindows(params: WeatherWindowRequest): Promise<WeatherWindowResponse> {
+  const res = await fetch('/api/v1/route/windows', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      start: params.start,
+      dest: params.dest,
+      earliest_departure: params.earliest_departure ? new Date(params.earliest_departure).toISOString() : undefined,
+      latest_departure: params.latest_departure ? new Date(params.latest_departure).toISOString() : undefined,
+      boat_preset: params.boat_preset,
+      model: params.model || 'gfs_0p25',
+      custom_boat: params.custom_boat,
+      custom_polar: params.custom_polar,
+    }),
+  });
+
+  return await parseApiResponse<WeatherWindowResponse>(res, 'Weather window search failed');
+}
+
