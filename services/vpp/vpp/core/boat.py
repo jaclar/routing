@@ -5,6 +5,10 @@ from typing import Callable, Optional
 import numpy as np
 from vpp.core.units import G
 
+# Heel angle at which crew hiking effort is essentially saturated. Below it the crew are
+# still coming out onto the rail; above it they are fully extended and cannot add more.
+CREW_FULL_HIKE_RAD = np.deg2rad(12.0)
+
 
 @dataclass
 class Hull:
@@ -124,9 +128,24 @@ class Stability:
         return displacement_mass * G * gz
 
     def righting_moment_crew(self, phi_rad: float) -> float:
-        """Righting moment contributed by crew hiking on the windward rail [N*m]."""
-        effective_crew_mass = self.crew_mass * self.crew_hiking_fraction
-        return effective_crew_mass * G * self.crew_hiking_distance * np.cos(phi_rad)
+        """Righting moment contributed by crew hiking on the windward rail [N*m].
+
+        Crew hike in response to heel, so their contribution has to vanish when the boat is
+        upright: with nothing to counter they sit centred, not out on a rail that is not
+        there. It then saturates at full hiking capacity once the boat is properly powered
+        up, which CREW_FULL_HIKE_RAD sets at around twelve degrees.
+
+        Returning the full moment at zero heel, as this once did, leaves the roll balance
+        unsolvable whenever the rig makes no heeling moment: the equation becomes
+        `0 - RM_crew = 0`, which has no root. That is precisely the case dead downwind,
+        where a symmetric rig produces no heeling moment at all, and it prevented the
+        equilibrium solver from converging at any deep running angle for any boat.
+        """
+        full_moment = self.crew_mass * self.crew_hiking_fraction * G * self.crew_hiking_distance
+        # tanh is odd, so the moment follows the direction of heel and stays smooth through
+        # upright, which matters for the least-squares Jacobian.
+        hiking_effort = np.tanh(phi_rad / CREW_FULL_HIKE_RAD)
+        return full_moment * np.cos(phi_rad) * hiking_effort
 
     def total_righting_moment(self, displacement_mass: float, phi_rad: float) -> float:
         """Total righting moment (Hull + Crew) [N*m]."""
