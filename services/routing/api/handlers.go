@@ -18,6 +18,7 @@ import (
 	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
 	"github.com/jaclar/routing-service/weather"
+	"github.com/jaclar/routing-service/window"
 )
 
 type Server struct {
@@ -383,6 +384,71 @@ func (s *Server) HandleLandmaskPolygons(w http.ResponseWriter, r *http.Request) 
 	resp := LandmaskResponse{
 		Polygons: polys,
 	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) HandleWeatherWindows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req WeatherWindowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	preset := req.BoatPreset
+	if preset == "" {
+		preset = "36ft-ketch"
+	}
+
+	var polarTable *polar.PolarTable
+	if req.CustomPolar != nil && len(req.CustomPolar.TWSList) > 0 && len(req.CustomPolar.TWAList) > 0 && len(req.CustomPolar.Speeds) > 0 {
+		polarTable = req.CustomPolar
+	} else {
+		var err error
+		polarTable, err = s.vppClient.FetchPolar(preset, req.CustomBoat)
+		if err != nil || polarTable == nil {
+			polarTable = polar.Get36ftKetchPolar()
+		}
+	}
+
+	// Calculate region bounding box with 6-degree buffer
+	minLat := math.Min(req.Start.Lat, req.Dest.Lat) - 6.0
+	maxLat := math.Max(req.Start.Lat, req.Dest.Lat) + 6.0
+	minLon := math.Min(req.Start.Lon, req.Dest.Lon) - 6.0
+	maxLon := math.Max(req.Start.Lon, req.Dest.Lon) + 6.0
+
+	canonicalModel := weather.NormalizeModelID(req.Model)
+	if canonicalModel == weather.ModelAll || canonicalModel == "" {
+		canonicalModel = weather.ModelGFS025
+	}
+
+	var wp weather.WeatherProvider
+	liveEngine := s.weatherProvider.GetEngine(canonicalModel)
+	_, fetchErr := liveEngine.FetchRegion(minLat, maxLat, minLon, maxLon, 1.5, 1.5)
+	if fetchErr != nil {
+		log.Printf("[WARN] Live weather fetch failed for windows model %s: %v, falling back to realistic engine", canonicalModel, fetchErr)
+		wp = weather.NewRealisticGFSEngine(req.EarliestDeparture)
+	} else {
+		wp = liveEngine
+	}
+
+	finder := window.NewWindowFinder(wp, s.landMask)
+	resp, err := finder.FindWindows(r.Context(), req, polarTable)
+	if err != nil {
+		log.Printf("[ERROR] Weather window search failed: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  true,
+			"reason": fmt.Sprintf("Weather window search failed: %v", err),
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, resp)
 }
 

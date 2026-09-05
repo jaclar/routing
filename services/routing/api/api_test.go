@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jaclar/routing-service/geo"
 	"github.com/jaclar/routing-service/isochrone"
@@ -143,3 +144,51 @@ func TestLandmaskPolygonsEndpoint(t *testing.T) {
 		t.Fatalf("Expected at least 1 land polygon, got 0")
 	}
 }
+
+func TestWeatherWindowsEndpoint(t *testing.T) {
+	server := NewServer("http://localhost:8000")
+	handler := server.SetupRouter()
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	latest := now.Add(48 * time.Hour)
+
+	winReq := WeatherWindowRequest{
+		Start:             geo.Point{Lat: 41.40, Lon: -71.35},
+		Dest:              geo.Point{Lat: 32.40, Lon: -64.55},
+		EarliestDeparture: now,
+		LatestDeparture:   &latest,
+		BoatPreset:        "36ft-ketch",
+	}
+
+	body, _ := json.Marshal(winReq)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/route/windows", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 for weather windows, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp WeatherWindowResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("Failed to decode windows response: %v", err)
+	}
+
+	if len(resp.Windows) == 0 {
+		t.Fatalf("Expected at least 1 weather window candidate, got 0")
+	}
+
+	best := resp.Windows[0]
+	if best.ComfortScore <= 0 {
+		t.Errorf("Expected positive comfort score, got %.1f", best.ComfortScore)
+	}
+	if best.ComfortRank != 1 {
+		t.Errorf("Expected rank 1 for first item, got %d", best.ComfortRank)
+	}
+	if best.RepresentativeEvent.Description == "" {
+		t.Errorf("Expected representative event description")
+	}
+}
+

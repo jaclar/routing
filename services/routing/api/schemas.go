@@ -8,7 +8,11 @@ import (
 	"github.com/jaclar/routing-service/landmask"
 	"github.com/jaclar/routing-service/polar"
 	"github.com/jaclar/routing-service/weather"
+	"github.com/jaclar/routing-service/window"
 )
+
+type WeatherWindowRequest = window.WindowRequest
+type WeatherWindowResponse = window.WindowSearchResponse
 
 type RouteRequest struct {
 	Start              geo.Point         `json:"start"`
