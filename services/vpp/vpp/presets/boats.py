@@ -52,9 +52,12 @@ def create_36ft_ketch() -> Boat:
 
     stability = Stability(
         gmt=1.05,
+        # No crew hiking is modelled for the built-in presets: hiking belongs to a
+        # full race setup, or to a boat whose owner configures it deliberately when
+        # building custom polars. Crew mass is kept only to record who is aboard.
         crew_mass=280.0,  # 3-4 cruising crew
         crew_hiking_distance=1.45,
-        crew_hiking_fraction=0.6,
+        crew_hiking_fraction=0.0,
     )
 
     return Boat(
@@ -67,47 +70,53 @@ def create_36ft_ketch() -> Boat:
 
 
 def create_36ft_sloop() -> Boat:
-    """Create a 36-foot modern racer-cruiser sloop."""
+    """Create a 36-foot racing sloop.
+
+    An inshore/offshore racer in the IRC 36 mould: light for her length, deep T-keel,
+    generous rig, and sailed with a full crew on the rail.
+    """
     hull = Hull(
-        loa=10.75,
-        lwl=9.32,
-        b_max=3.51,
-        b_wl=3.05,
-        draft_canoe=0.52,
-        draft_total=2.10,
-        displacement_mass=5500.0,
-        prismatic_coef=0.56,
-        form_factor_k=0.10,
+        loa=10.90,
+        lwl=9.65,          # near-plumb bow, long sailing waterline
+        b_max=3.48,
+        b_wl=2.95,         # narrow waterline, beam carried high for form stability when heeled
+        draft_canoe=0.48,
+        draft_total=2.30,
+        displacement_mass=4900.0,
+        prismatic_coef=0.57,
+        form_factor_k=0.09,
     )
 
     appendages = Appendages(
         keel_type="fin_bulb",
-        keel_area=1.70,
-        keel_span=1.60,
-        rudder_area=0.75,
-        rudder_span=1.40,
-        effective_draft=2.05,
+        keel_area=1.60,
+        keel_span=1.85,
+        rudder_area=0.72,
+        rudder_span=1.50,
+        effective_draft=2.25,
     )
 
     rig = Rig(
         rig_type="sloop",
-        main_p=13.3,
-        main_e=4.2,
-        fore_i=14.0,
-        fore_j=4.1,
-        mast_height_above_water=16.5,
-        boom_height_above_water=1.9,
+        main_p=13.9,
+        main_e=4.55,
+        fore_i=14.6,
+        fore_j=4.25,
+        mast_height_above_water=17.3,
+        boom_height_above_water=1.85,
     )
 
     stability = Stability(
-        gmt=1.20,
+        gmt=1.15,
+        # A raced boat: the crew are on the rail and their righting moment is part of how
+        # she is sailed, so hiking is modelled here.
         crew_mass=550.0,  # 7 racing crew
-        crew_hiking_distance=1.65,
+        crew_hiking_distance=1.68,
         crew_hiking_fraction=0.85,
     )
 
     return Boat(
-        name="36ft Racer-Cruiser Sloop",
+        name="36ft Racing Sloop",
         hull=hull,
         appendages=appendages,
         rig=rig,
@@ -116,47 +125,53 @@ def create_36ft_sloop() -> Boat:
 
 
 def create_40ft_performance_cruiser() -> Boat:
-    """Create a 40-foot performance cruiser."""
+    """Create a modern 40-foot cruising boat.
+
+    A contemporary production cruiser: beamy, moderately heavy once loaded for living
+    aboard, on a shoal-ish cruising fin, and sailed short-handed from the cockpit.
+    """
     hull = Hull(
-        loa=12.24,
-        lwl=10.67,
-        b_max=3.89,
-        b_wl=3.40,
-        draft_canoe=0.58,
-        draft_total=2.45,
-        displacement_mass=7500.0,
-        prismatic_coef=0.57,
-        form_factor_k=0.11,
+        loa=12.20,
+        lwl=11.10,         # plumb bow and broad transom, typical of the modern type
+        b_max=4.05,
+        b_wl=3.58,
+        draft_canoe=0.60,
+        draft_total=1.98,  # cruising fin, kept shallow for anchorages
+        displacement_mass=8600.0,  # loaded: tankage, ground tackle, cruising gear
+        prismatic_coef=0.58,
+        form_factor_k=0.13,
     )
 
     appendages = Appendages(
-        keel_type="bulb",
-        keel_area=2.00,
-        keel_span=1.90,
-        rudder_area=0.90,
-        rudder_span=1.60,
-        effective_draft=2.40,
+        keel_type="fin_bulb",
+        keel_area=2.35,
+        keel_span=1.45,
+        rudder_area=1.00,
+        rudder_span=1.35,
+        effective_draft=1.92,
     )
 
     rig = Rig(
         rig_type="sloop",
-        main_p=15.2,
-        main_e=5.2,
-        fore_i=16.0,
-        fore_j=4.6,
-        mast_height_above_water=18.8,
-        boom_height_above_water=2.1,
+        main_p=14.6,
+        main_e=4.90,
+        fore_i=15.4,
+        fore_j=4.50,
+        mast_height_above_water=17.9,
+        boom_height_above_water=2.10,
     )
 
     stability = Stability(
-        gmt=1.25,
-        crew_mass=600.0,
+        gmt=1.35,  # beam carried aft gives a modern cruiser plenty of form stability
+        # Cruising crew sit in the cockpit rather than on the rail, so no hiking moment is
+        # modelled. Crew mass is recorded only to note who is aboard.
+        crew_mass=400.0,  # cruising couple plus guests
         crew_hiking_distance=1.80,
-        crew_hiking_fraction=0.75,
+        crew_hiking_fraction=0.0,
     )
 
     return Boat(
-        name="40ft Performance Cruiser",
+        name="40ft Cruiser",
         hull=hull,
         appendages=appendages,
         rig=rig,
@@ -199,6 +214,9 @@ def create_24ft_sportboat() -> Boat:
 
     stability = Stability(
         gmt=0.95,
+        # This one is a genuine race boat, so hiking crew are part of how it is sailed
+        # and are modelled. Solved without them it is so tender that its upwind row at
+        # 25 knots collapses to a fraction of a knot, which is useless for routing.
         crew_mass=320.0,  # 4 hiking crew
         crew_hiking_distance=1.20,
         crew_hiking_fraction=0.95,

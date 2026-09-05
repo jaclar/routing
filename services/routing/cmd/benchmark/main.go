@@ -112,7 +112,7 @@ func getAllPresets() []PresetConfig {
 			Dest:      geo.Point{Lat: 51.39, Lon: -9.60},
 			TimeStep:  30 * time.Minute,
 			BoatID:    "36ft-sloop",
-			BoatName:  "36ft Racer-Cruiser Sloop",
+			BoatName:  "36ft Racing Sloop",
 		},
 		{
 			ID:        "newport_bermuda",
@@ -123,7 +123,7 @@ func getAllPresets() []PresetConfig {
 			Dest:      geo.Point{Lat: 32.40, Lon: -64.55},
 			TimeStep:  1 * time.Hour,
 			BoatID:    "40ft-cruiser",
-			BoatName:  "40ft Performance Cruiser",
+			BoatName:  "40ft Cruiser",
 		},
 		{
 			ID:        "lisbon_madeira",
