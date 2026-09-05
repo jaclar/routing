@@ -40,11 +40,11 @@ type ZGroupMeta struct {
 
 // Store represents an open Zarr dataset ready for sub-millisecond point time-series queries.
 type Store struct {
-	mu          sync.RWMutex
-	RootDir     string
-	Cycle       time.Time
-	Steps       []int
-	Members     []int
+	mu           sync.RWMutex
+	RootDir      string
+	Cycle        time.Time
+	Steps        []int
+	Members      []int
 	IsEnsemble   bool
 	StoreMembers bool
 	NMembers     int
@@ -348,26 +348,28 @@ func (s *Store) GetAllMembersPointTimeSeries(variable string, latIdx, lonIdx int
 
 // StoreWriter writes raw forecast slices and builds chunked Zarr stores with low-memory disk streaming.
 type StoreWriter struct {
-	mu         sync.Mutex
-	dir        string
-	slicesDir  string
-	cycle      *model.ModelCycle
-	stepMap    map[int]int // forecastStep -> stepIndex
-	steps      []int
-	members    []int
-	isEnsemble bool
-	latStart   float64
-	latEnd     float64
-	latStep    float64
-	lonStart   float64
-	lonEnd     float64
-	lonStep    float64
+	mu                sync.Mutex
+	dir               string
+	slicesDir         string
+	cycle             *model.ModelCycle
+	stepMap           map[int]int // forecastStep -> stepIndex
+	steps             []int
+	members           []int
+	isEnsemble        bool
+	latStart          float64
+	latEnd            float64
+	latStep           float64
+	lonStart          float64
+	lonEnd            float64
+	lonStep           float64
 	nlats             int
 	nlons             int
 	chunkLat          int
 	chunkLon          int
 	variables         []string
 	storeFullEnsemble bool
+	startedAt         time.Time
+	downloadEndedAt   time.Time
 }
 
 // NewStoreWriter initializes a staging Zarr directory.
@@ -420,9 +422,17 @@ func NewStoreWriter(dir string, cycle *model.ModelCycle, latStart, latEnd, latSt
 		chunkLon:          DefaultChunkLon,
 		variables:         variables,
 		storeFullEnsemble: storeFullEnsemble,
+		startedAt:         time.Now().UTC(),
 	}
 
 	return sw, nil
+}
+
+// MarkDownloadComplete records the timestamp at which all slice downloads for this cycle finished successfully.
+func (sw *StoreWriter) MarkDownloadComplete() {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	sw.downloadEndedAt = time.Now().UTC()
 }
 
 // WriteSlice saves a 2D scalar field for a given variable and forecast step to temporary slice files.
@@ -940,6 +950,8 @@ func (sw *StoreWriter) Finalize() error {
 	// Remove temporary .slices folder
 	_ = os.RemoveAll(sw.slicesDir)
 
+	writeEndedAt := time.Now().UTC()
+
 	// Collect variable names for metadata
 	finalVarList := make([]string, 0, len(createdVariables))
 	for vName := range createdVariables {
@@ -949,43 +961,49 @@ func (sw *StoreWriter) Finalize() error {
 
 	// Write metadata.json for the store
 	storeMeta := struct {
-		ModelName     string    `json:"model_name"`
-		ReferenceTime time.Time `json:"reference_time"`
-		ResolutionDeg float64   `json:"resolution_deg"`
-		Steps         []int     `json:"steps"`
-		Members       []int     `json:"members,omitempty"`
-		IsEnsemble    bool      `json:"is_ensemble,omitempty"`
-		StoreMembers  bool      `json:"store_members"`
-		Variables     []string  `json:"variables"`
-		LatStart      float64   `json:"lat_start"`
-		LatEnd        float64   `json:"lat_end"`
-		LatStep       float64   `json:"lat_step"`
-		LonStart      float64   `json:"lon_start"`
-		LonEnd        float64   `json:"lon_end"`
-		LonStep       float64   `json:"lon_step"`
-		NLats         int       `json:"nlats"`
-		NLons         int       `json:"nlons"`
-		ChunkLat      int       `json:"chunk_lat"`
-		ChunkLon      int       `json:"chunk_lon"`
+		ModelName       string    `json:"model_name"`
+		ReferenceTime   time.Time `json:"reference_time"`
+		ResolutionDeg   float64   `json:"resolution_deg"`
+		Steps           []int     `json:"steps"`
+		Members         []int     `json:"members,omitempty"`
+		IsEnsemble      bool      `json:"is_ensemble,omitempty"`
+		StoreMembers    bool      `json:"store_members"`
+		Variables       []string  `json:"variables"`
+		LatStart        float64   `json:"lat_start"`
+		LatEnd          float64   `json:"lat_end"`
+		LatStep         float64   `json:"lat_step"`
+		LonStart        float64   `json:"lon_start"`
+		LonEnd          float64   `json:"lon_end"`
+		LonStep         float64   `json:"lon_step"`
+		NLats           int       `json:"nlats"`
+		NLons           int       `json:"nlons"`
+		ChunkLat        int       `json:"chunk_lat"`
+		ChunkLon        int       `json:"chunk_lon"`
+		IngestStartedAt time.Time `json:"ingest_started_at"`
+		DownloadEndedAt time.Time `json:"download_ended_at"`
+		WriteEndedAt    time.Time `json:"write_ended_at"`
 	}{
-		ModelName:     sw.cycle.ModelName,
-		ReferenceTime: sw.cycle.ReferenceTime,
-		ResolutionDeg: sw.cycle.ResolutionDeg,
-		Steps:         sw.steps,
-		Members:       sw.members,
-		IsEnsemble:    sw.isEnsemble,
-		StoreMembers:  sw.storeFullEnsemble && sw.isEnsemble,
-		Variables:     finalVarList,
-		LatStart:      sw.latStart,
-		LatEnd:        sw.latEnd,
-		LatStep:       sw.latStep,
-		LonStart:      sw.lonStart,
-		LonEnd:        sw.lonEnd,
-		LonStep:       sw.lonStep,
-		NLats:         sw.nlats,
-		NLons:         sw.nlons,
-		ChunkLat:      sw.chunkLat,
-		ChunkLon:      sw.chunkLon,
+		ModelName:       sw.cycle.ModelName,
+		ReferenceTime:   sw.cycle.ReferenceTime,
+		ResolutionDeg:   sw.cycle.ResolutionDeg,
+		Steps:           sw.steps,
+		Members:         sw.members,
+		IsEnsemble:      sw.isEnsemble,
+		StoreMembers:    sw.storeFullEnsemble && sw.isEnsemble,
+		Variables:       finalVarList,
+		LatStart:        sw.latStart,
+		LatEnd:          sw.latEnd,
+		LatStep:         sw.latStep,
+		LonStart:        sw.lonStart,
+		LonEnd:          sw.lonEnd,
+		LonStep:         sw.lonStep,
+		NLats:           sw.nlats,
+		NLons:           sw.nlons,
+		ChunkLat:        sw.chunkLat,
+		ChunkLon:        sw.chunkLon,
+		IngestStartedAt: sw.startedAt,
+		DownloadEndedAt: sw.downloadEndedAt,
+		WriteEndedAt:    writeEndedAt,
 	}
 
 	metaJSON, _ := json.MarshalIndent(storeMeta, "", "  ")
@@ -1057,4 +1075,3 @@ func min(a, b int) int {
 	}
 	return b
 }
-

@@ -1,6 +1,7 @@
 package zarr
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,141 @@ func (m *StoreManager) PruneOldCycles(modelID string, retainCount int) error {
 	return nil
 }
 
+// CycleSummary describes a finalized on-disk Zarr store for one model cycle, for debug/status reporting.
+type CycleSummary struct {
+	Cycle           string    `json:"cycle"`
+	ReferenceTime   time.Time `json:"reference_time"`
+	IsLatest        bool      `json:"is_latest"`
+	IsEnsemble      bool      `json:"is_ensemble"`
+	NMembers        int       `json:"n_members"`
+	StoreMembers    bool      `json:"store_members"`
+	Variables       []string  `json:"variables"`
+	SizeBytes       int64     `json:"size_bytes"`
+	IngestStartedAt time.Time `json:"ingest_started_at,omitempty"`
+	DownloadEndedAt time.Time `json:"download_ended_at,omitempty"`
+	WriteEndedAt    time.Time `json:"write_ended_at,omitempty"`
+}
+
+// ModelStoreSummary lists all finalized cycles currently on disk for one model.
+type ModelStoreSummary struct {
+	ModelID string         `json:"model_id"`
+	Cycles  []CycleSummary `json:"cycles"`
+}
+
+// ScanModelStores walks the base directory and reports every finalized (non-staging) Zarr
+// store per model, including on-disk size and the ingest/download/write timestamps persisted
+// in metadata.json. Used to power a debug/status endpoint.
+func (m *StoreManager) ScanModelStores() ([]ModelStoreSummary, error) {
+	entries, err := os.ReadDir(m.BaseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var out []ModelStoreSummary
+	for _, modelEntry := range entries {
+		if !modelEntry.IsDir() {
+			continue
+		}
+		modelID := modelEntry.Name()
+		modelDir := filepath.Join(m.BaseDir, modelID)
+
+		latestTarget := ""
+		if target, err := os.Readlink(filepath.Join(modelDir, "latest.zarr")); err == nil {
+			latestTarget = target
+		}
+
+		cycleEntries, err := os.ReadDir(modelDir)
+		if err != nil {
+			continue
+		}
+
+		summary := ModelStoreSummary{ModelID: modelID}
+		for _, ce := range cycleEntries {
+			name := ce.Name()
+			if !ce.IsDir() || !strings.HasSuffix(name, ".zarr") || name == "latest.zarr" || strings.Contains(name, "staging") {
+				continue
+			}
+
+			cyclePath := filepath.Join(modelDir, name)
+			meta, err := readStoreMetadata(cyclePath)
+			if err != nil {
+				continue
+			}
+
+			size, _ := dirSize(cyclePath)
+
+			summary.Cycles = append(summary.Cycles, CycleSummary{
+				Cycle:           name,
+				ReferenceTime:   meta.ReferenceTime,
+				IsLatest:        name == latestTarget,
+				IsEnsemble:      meta.IsEnsemble,
+				NMembers:        len(meta.Members),
+				StoreMembers:    meta.StoreMembers,
+				Variables:       meta.Variables,
+				SizeBytes:       size,
+				IngestStartedAt: meta.IngestStartedAt,
+				DownloadEndedAt: meta.DownloadEndedAt,
+				WriteEndedAt:    meta.WriteEndedAt,
+			})
+		}
+
+		sort.Slice(summary.Cycles, func(i, j int) bool {
+			return summary.Cycles[i].ReferenceTime.After(summary.Cycles[j].ReferenceTime)
+		})
+
+		out = append(out, summary)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ModelID < out[j].ModelID })
+	return out, nil
+}
+
+type storeMetadataFile struct {
+	ReferenceTime   time.Time `json:"reference_time"`
+	Members         []int     `json:"members,omitempty"`
+	IsEnsemble      bool      `json:"is_ensemble,omitempty"`
+	StoreMembers    bool      `json:"store_members"`
+	Variables       []string  `json:"variables"`
+	IngestStartedAt time.Time `json:"ingest_started_at"`
+	DownloadEndedAt time.Time `json:"download_ended_at"`
+	WriteEndedAt    time.Time `json:"write_ended_at"`
+}
+
+func readStoreMetadata(dir string) (*storeMetadataFile, error) {
+	metaBytes, err := os.ReadFile(filepath.Join(dir, "metadata.json"))
+	if err != nil {
+		return nil, err
+	}
+	var meta storeMetadataFile
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+// dirSize sums the size of all regular files under path (used to report on-disk footprint of a store).
+func dirSize(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size, err
+}
+
+// DirSize exposes dirSize for callers outside this package (e.g. reporting live staging directory size).
+func DirSize(path string) (int64, error) {
+	return dirSize(path)
+}
+
 // ParseCycleSlug parses a slug like "20260830_06Z" back into time.Time.
 func ParseCycleSlug(slug string) (time.Time, error) {
 	slug = strings.TrimSuffix(slug, ".zarr")
@@ -174,4 +310,3 @@ func (m *StoreManager) GetLatestCycleTime(modelID string) (time.Time, bool, erro
 
 	return validTimes[len(validTimes)-1], true, nil
 }
-

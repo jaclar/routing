@@ -11,8 +11,12 @@ import (
 
 	"sailboat/meteo/internal/driver"
 	"sailboat/meteo/internal/model"
+	"sailboat/meteo/internal/status"
 	"sailboat/meteo/internal/zarr"
 )
+
+// Progress tracks in-flight ingestion cycles across all models, for the worker's debug/status endpoint.
+var Progress = status.NewTracker()
 
 // IngestCycle performs a full cycle ingestion: discovers slices, downloads/decodes in parallel, and writes to staging store.
 func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreManager, cycle *model.ModelCycle, variables []string, concurrency int, storeFullEnsemble bool) error {
@@ -34,13 +38,15 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 
 	// Global 0.25° grid bounds (90 to -90 Lat, 0 to 359.75 Lon)
 	latStart, latEnd, latStep := 90.0, -90.0, cycle.ResolutionDeg
-	lonStart, lonEnd, lonStep := 0.0, 360.0 - cycle.ResolutionDeg, cycle.ResolutionDeg
+	lonStart, lonEnd, lonStep := 0.0, 360.0-cycle.ResolutionDeg, cycle.ResolutionDeg
 
 	// 2. Create staging Zarr writer
 	writer, stagingDir, err := mgr.CreateStagingWriter(cycle, latStart, latEnd, latStep, lonStart, lonEnd, lonStep, variables, storeFullEnsemble)
 	if err != nil {
 		return fmt.Errorf("failed to create staging writer for %s: %w", tag, err)
 	}
+
+	Progress.Start(cycle.ModelName, cycle.ModelName, zarr.CycleSlug(cycle.ReferenceTime), cycle.ReferenceTime, stagingDir, len(tasks))
 
 	// 3. Concurrently fetch and decode slices with worker pool
 	taskChan := make(chan model.FetchTask, len(tasks))
@@ -117,6 +123,7 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 
 				countMu.Lock()
 				completedCount++
+				Progress.SetCompleted(cycle.ModelName, completedCount)
 				if completedCount%10 == 0 || completedCount == int64(len(tasks)) {
 					log.Printf("[Ingest]%s Progress: %d/%d slices processed (%.1f%%)",
 						tag, completedCount, len(tasks), float64(completedCount)/float64(len(tasks))*100.0)
@@ -132,21 +139,31 @@ func IngestCycle(ctx context.Context, drv driver.ModelDriver, mgr *zarr.StoreMan
 	wg.Wait()
 
 	if firstErr != nil {
+		Progress.MarkFailed(cycle.ModelName, firstErr)
 		_ = os.RemoveAll(stagingDir)
 		return fmt.Errorf("cycle ingestion aborted for %s (upstream files still in-flight or incomplete): %w", tag, firstErr)
 	}
 
+	writer.MarkDownloadComplete()
+	Progress.MarkDownloadEnded(cycle.ModelName)
+
 	// 4. Finalize staging store
 	log.Printf("[Ingest]%s Packing and compressing Zarr store...", tag)
 	if err := writer.Finalize(); err != nil {
+		Progress.MarkFailed(cycle.ModelName, err)
+		_ = os.RemoveAll(stagingDir)
 		return fmt.Errorf("failed to finalize staging store for %s: %w", tag, err)
 	}
 
 	// 5. Atomically promote staging store and update symlink
 	log.Printf("[Ingest]%s Promoting staging store to permanent cycle %s...", tag, zarr.CycleSlug(cycle.ReferenceTime))
 	if err := mgr.PromoteStagingStore(cycle.ModelName, cycle.ReferenceTime, stagingDir); err != nil {
+		Progress.MarkFailed(cycle.ModelName, err)
+		_ = os.RemoveAll(stagingDir)
 		return fmt.Errorf("failed to promote store for %s: %w", tag, err)
 	}
+
+	Progress.Clear(cycle.ModelName)
 
 	// 6. Prune old runs (keep latest 2)
 	_ = mgr.PruneOldCycles(cycle.ModelName, 2)
@@ -164,4 +181,3 @@ func isNotFoundError(err error) bool {
 		strings.Contains(s, "not found") ||
 		strings.Contains(s, "nosuchkey")
 }
-

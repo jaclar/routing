@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"sailboat/meteo/internal/driver"
 	"sailboat/meteo/internal/scheduler"
@@ -42,6 +47,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize store manager at %s: %v", *dataDir, err)
 	}
+
+	debugPort := os.Getenv("DEBUG_PORT")
+	if debugPort == "" {
+		debugPort = "4082"
+	}
+	startDebugServer(debugPort, mgr)
 
 	// Register all available drivers (deterministic + ensemble)
 	drivers := driver.NewAllDrivers(nil)
@@ -118,4 +129,65 @@ func main() {
 	}
 	wg.Wait()
 	log.Println("Manual ingestion run finished.")
+}
+
+// startDebugServer exposes a read-only status endpoint reporting which model cycles are
+// fully downloaded and stored on disk (with size) vs. currently in progress (with a completion
+// percentage) and the relevant start/download-end/write-end timestamps for each.
+func startDebugServer(port string, mgr *zarr.StoreManager) {
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"service": "meteo-worker",
+		})
+	})
+
+	r.Get("/debug/status", func(w http.ResponseWriter, req *http.Request) {
+		finalized, err := mgr.ScanModelStores()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":  true,
+				"reason": err.Error(),
+			})
+			return
+		}
+
+		inProgress := scheduler.Progress.Snapshot()
+		enriched := make([]map[string]any, 0, len(inProgress))
+		for _, p := range inProgress {
+			stagingSizeBytes, _ := zarr.DirSize(p.StagingDir)
+			enriched = append(enriched, map[string]any{
+				"model_id":           p.ModelID,
+				"cycle":              p.Cycle,
+				"reference_time":     p.ReferenceTime,
+				"stage":              p.Stage,
+				"total_slices":       p.TotalSlices,
+				"completed_slices":   p.CompletedSlices,
+				"percent_complete":   p.PercentComplete,
+				"started_at":         p.StartedAt,
+				"download_ended_at":  p.DownloadEndedAt,
+				"staging_size_bytes": stagingSizeBytes,
+				"error":              p.Error,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"finalized":   finalized,
+			"in_progress": enriched,
+		})
+	})
+
+	go func() {
+		log.Printf("[Debug] Worker debug/status server listening on :%s", port)
+		if err := http.ListenAndServe(":"+port, r); err != nil {
+			log.Printf("[Debug] server exited: %v", err)
+		}
+	}()
 }

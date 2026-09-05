@@ -32,7 +32,9 @@ VOLUME ["/data/store"]
 
 ENV PORT=4081
 ENV DATA_DIR=/data/store
+ENV DEBUG_PORT=4082
 
 EXPOSE 4081
+EXPOSE 4082
 
 CMD ["/app/meteo-api"]
